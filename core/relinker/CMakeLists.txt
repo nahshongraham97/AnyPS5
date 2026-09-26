@@ -73,6 +73,17 @@ endif()
 
 
 if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_executable(elf_bounds_tests tests/ElfBoundsTests.cpp relinker/src/parsing/ElfReader.cpp)
+    target_include_directories(elf_bounds_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/domain/include ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include)
+    add_test(NAME elf_bounds COMMAND elf_bounds_tests)
+    add_executable(autorun_probe tests/AutorunProbe.cpp cli/src/Autorun.cpp)
+    target_include_directories(autorun_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cli/include)
+    add_test(NAME relinker_regressions
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/RegressionTests.py
+            --relinker $<TARGET_FILE:relinker> --autorun-probe $<TARGET_FILE:autorun_probe> -v
+    )
     add_executable(strict_nid_filter_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/StrictNidFilterTests.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/UnusedNidFilter/StrictNidFilter.cpp

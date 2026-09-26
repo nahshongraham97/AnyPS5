@@ -7,9 +7,15 @@ if(BUILD_TESTING)
 endif()
 
 option(ANYPS5_ENABLE_SPIRV_TOOLS "Enable SPIRV-Tools validation and optimization" OFF)
+option(ANYPS5_RELINKER_ONLY "Build the relinker without runtime or graphics dependencies" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(ANYPS5_RELINKER_ONLY)
+    add_subdirectory(core/relinker)
+    return()
+endif()
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++")
 
