@@ -137,7 +137,7 @@ std::uint16_t ProgramHeaderLayoutBuilder::WriteLayout(
         keptCount++;
     }
 
-    const std::uint16_t neededPh = keptCount + kSyntheticProgramHeaderCount;
+    const std::uint32_t neededPh = static_cast<std::uint32_t>(keptCount) + kSyntheticProgramHeaderCount;
     if (neededPh > request.PhNum)
         throw Domain::RelinkerException(
             "Not enough program header slots: need " + std::to_string(neededPh) +
