@@ -105,7 +105,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     gotSize = readAsSize(DT_OS_PLTRELSZ, DT_PLTRELSZ, "DT_PLTRELSZ");
 
     const FileByteOffset dynStrTabOffset = readAsOffset(DT_OS_STRTAB, DT_STRTAB, "DT_STRTAB");
-    requireExactlyOneOf(DT_OS_STRSZ, DT_STRSZ, "DT_STRSZ");
+    const ByteCount dynStrTabSize = readAsSize(DT_OS_STRSZ, DT_STRSZ, "DT_STRSZ");
 
     const FileByteOffset dynSymTabOffset = readAsOffset(DT_OS_SYMTAB, DT_SYMTAB, "DT_SYMTAB");
     constexpr std::size_t symEntSize = 24;
@@ -138,11 +138,27 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
 
     const std::vector<std::uint8_t>& raw = _elfReader->GetRawBytes();
 
+    const auto requireRange = [&](const FileByteOffset offset, const ByteCount size) {
+        if (offset > raw.size() || size > raw.size() - offset)
+            throw RelinkerException("Dynamic table range out of bounds", offset);
+    };
+    requireRange(dynStrTabOffset, dynStrTabSize);
+    requireRange(dynSymTabOffset, symEntSize);
+    requireRange(dynRelaOffset, dynRelaSize);
+    requireRange(dynJmpRelOffset, dynJmpRelSize);
+    if (dynRelaSize % relaEntSize != 0 || dynJmpRelSize % relaEntSize != 0)
+        throw RelinkerException("Truncated relocation table");
+
     auto readCStr = [&](FileByteOffset strOff) -> std::string {
+        if (strOff >= dynStrTabSize)
+            throw RelinkerException("String table offset out of bounds", strOff);
         std::string result;
         FileByteOffset pos = dynStrTabOffset + strOff;
-        while (pos < raw.size() && raw[pos] != 0)
+        const auto end = dynStrTabOffset + dynStrTabSize;
+        while (pos < end && raw[pos] != 0)
             result.push_back(static_cast<char>(raw[pos++]));
+        if (pos == end)
+            throw RelinkerException("Unterminated dynamic string", dynStrTabOffset + strOff);
         return result;
     };
 
@@ -173,9 +189,11 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
                 continue;
             }
 
-            const FileByteOffset symOff = dynSymTabOffset + static_cast<FileByteOffset>(symIdx) * symEntSize;
-            if (symOff + 4 > raw.size())
-                throw RelinkerException("Symbol table entry out of bounds", symOff);
+            const ByteCount symDelta = static_cast<ByteCount>(symIdx) * symEntSize;
+            if (symDelta > raw.size() - dynSymTabOffset)
+                throw RelinkerException("Symbol table entry out of bounds", dynSymTabOffset);
+            const FileByteOffset symOff = dynSymTabOffset + symDelta;
+            requireRange(symOff, symEntSize);
 
             std::uint32_t nameOff = 0;
             std::memcpy(&nameOff, raw.data() + symOff, 4);

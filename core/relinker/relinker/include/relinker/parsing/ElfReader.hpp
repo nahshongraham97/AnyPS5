@@ -24,6 +24,7 @@ public:
 private:
     std::vector<std::uint8_t> _fileBuffer;
 
+    void validateRange(FileByteOffset offset, ByteCount size) const;
     std::uint64_t _readU64At(FileByteOffset offset) const;
     std::uint32_t _readU32At(FileByteOffset offset) const;
     std::uint16_t _readU16At(FileByteOffset offset) const;
