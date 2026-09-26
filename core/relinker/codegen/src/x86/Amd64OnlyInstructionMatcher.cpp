@@ -1,15 +1,10 @@
 #include <codegen/x86/IAmd64OnlyInstructionMatcher.hpp>
 #include <codegen/x86/DecodedInstruction.hpp>
-#include <codegen/x86/Amd64OnlySubstitutionTable.hpp>
 #include <memory>
 
 namespace Codegen {
 
 namespace {
-
-std::vector<std::uint8_t> _bytesOf(const Amd64OnlySubstitutionTable::Entry& e) {
-    return std::vector<std::uint8_t>(e.Bytes, e.Bytes + e.Size);
-}
 
 class Amd64OnlyInstructionMatcher : public IAmd64OnlyInstructionMatcher {
 public:
@@ -23,28 +18,32 @@ std::optional<Amd64OnlyMatch> Amd64OnlyInstructionMatcher::Match(
     const std::uint8_t* data,
     std::size_t length
 ) const {
-    using namespace Amd64OnlySubstitutionTable;
     const DecodedInstruction instr{data, length};
 
     if (instr.IsMonitorx()) {
-        return Amd64OnlyMatch{kMonitorx.Name, length, _bytesOf(kMonitorx)};
+        return Amd64OnlyMatch{"MONITORX", length, {}};
     }
 
     if (instr.IsMwaitx()) {
-        return Amd64OnlyMatch{kMwaitx.Name, length, _bytesOf(kMwaitx)};
+        return Amd64OnlyMatch{"MWAITX", length, {}};
     }
 
     if (instr.IsClzero()) {
-        return Amd64OnlyMatch{kClzero.Name, length, _bytesOf(kClzero)};
+        return Amd64OnlyMatch{"CLZERO", length, {}};
     }
 
     if (instr.IsRdpru()) {
-        return Amd64OnlyMatch{kRdpru.Name, length, _bytesOf(kRdpru)};
+        return Amd64OnlyMatch{"RDPRU", length, {}};
     }
 
     if (instr.IsMcommit()) {
-        return Amd64OnlyMatch{kMcommit.Name, length, _bytesOf(kMcommit)};
+        return Amd64OnlyMatch{"MCOMMIT", length, {}};
     }
+
+    if (instr.IsExtrq()) return Amd64OnlyMatch{"EXTRQ", length, {}};
+    if (instr.IsInsertq()) return Amd64OnlyMatch{"INSERTQ", length, {}};
+    if (instr.IsMovntss()) return Amd64OnlyMatch{"MOVNTSS", length, {}};
+    if (instr.IsMovntsd()) return Amd64OnlyMatch{"MOVNTSD", length, {}};
 
     return std::nullopt;
 }

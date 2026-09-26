@@ -18,6 +18,7 @@
 #include <relinker/output/CallRegistryWriter.hpp>
 #include <relinker/pipeline/RelinkerPipeline.hpp>
 #include <codegen/IAmd64OnlyConverter.hpp>
+#include <codegen/CodegenException.hpp>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -50,6 +51,7 @@ int main(const int argc, char* argv[]) {
             std::cout << "OK: " << result.ReplacedCount << " instructions replaced\n";
 
             if (args.autorun) return Cli::Autorun(absPath, args.toWindows);
+            return 0;
         }
 
         auto elfReader = std::make_shared<Relinker::ElfReader>(sourceBytes);
@@ -100,6 +102,9 @@ int main(const int argc, char* argv[]) {
 
         if (args.autorun) return Cli::Autorun(absPath, args.toWindows);
 
+    } catch (const Codegen::CodegenException& e) {
+        std::cerr << "FAIL: " << e.what() << " (offset 0x" << std::hex << e.FailureOffset << ")\n";
+        return 2;
     } catch (const Domain::RelinkerException& e) {
         std::cerr << "FAIL: " << e.what();
         if (e.FailureOffset != 0) std::cerr << " (offset 0x" << std::hex << e.FailureOffset << ")";

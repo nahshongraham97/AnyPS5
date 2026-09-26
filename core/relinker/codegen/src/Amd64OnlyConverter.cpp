@@ -2,6 +2,7 @@
 #include <codegen/IInstructionScanner.hpp>
 #include <codegen/x86/X64InstructionRewriter.hpp>
 #include <codegen/x86/IAmd64OnlyInstructionMatcher.hpp>
+#include <codegen/CodegenException.hpp>
 #include <memory>
 
 namespace Codegen {
@@ -30,6 +31,8 @@ std::size_t Amd64OnlyConverter::_convertSegment(
     std::vector<std::uint8_t>& fileBytes,
     const Domain::ProgramHeader& ph
 ) const {
+    if (ph.Offset > fileBytes.size() || ph.FileSize > fileBytes.size() - ph.Offset)
+        throw CodegenException("Code segment is outside the input file", ph.Offset);
     const auto segOffset = static_cast<std::size_t>(ph.Offset);
     const auto segSize = static_cast<std::size_t>(ph.FileSize);
 
@@ -49,6 +52,8 @@ std::size_t Amd64OnlyConverter::_convertSegment(
         if (!result.has_value()) {
             continue;
         }
+        if (result->ReplacementBytes.empty())
+            throw CodegenException("No Intel-compatible replacement for " + result->InstructionName, ph.Offset + match.Offset);
         const RewriteRequest request{
             static_cast<Domain::FileByteOffset>(offset),
             result->ReplacementBytes
