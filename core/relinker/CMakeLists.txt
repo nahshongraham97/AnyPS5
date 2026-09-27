@@ -73,6 +73,18 @@ endif()
 
 
 if(BUILD_TESTING)
+    add_executable(windows_import_libraries_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/tests/WindowsImportLibrariesTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsImportBuilder.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsPeFormat.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/src/BufferUtils.cpp
+    )
+    target_include_directories(windows_import_libraries_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/domain/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/include
+    )
+    add_test(NAME windows_import_libraries COMMAND windows_import_libraries_tests)
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
         add_test(NAME optional_plt COMMAND ${Python3_EXECUTABLE}
