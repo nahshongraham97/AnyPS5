@@ -17,6 +17,7 @@ target_include_directories(nid_patcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/nid/i
 target_compile_features(nid_patcher PRIVATE cxx_std_20)
 
 if(MINGW)
+    target_link_options(nid_patcher PRIVATE -static -static-libgcc -static-libstdc++)
     add_compile_options(-fno-asynchronous-unwind-tables)
 endif()
 
