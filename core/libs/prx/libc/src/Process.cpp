@@ -13,6 +13,7 @@
 #include "prx/libc/include/Shutdown.hpp"
 
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/System.hpp"
 #include "SceTypes.hpp"
 
 namespace {
@@ -86,6 +87,10 @@ extern "C" void LibcRunShutdown_nid_postfix() {
 }
 
 extern "C" {
+
+int APS5_VABI system_nid_postfix(const char* command) {
+    return LibcSystem::Invoke(command, [](const char* value) { return std::system(value); });
+}
 
 [[noreturn]] void APS5_VABI _Exit_nid_postfix(int code) {
     static const bool trace = std::getenv("APS5_TRACE_EXIT") != nullptr;
