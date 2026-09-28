@@ -1,8 +1,8 @@
 # Windows payload build and deployment
 
-The fork's `fix/payload-startup-audit` branch contains the
+The fork's `main` branch contains the
 MinGW PRX export fixes, patched library deployment script, and the experimental
-guest kernel model. Build from this branch rather than the older
+guest kernel model. Build from `main` rather than the older
 `integration/core-engine` checkout. In particular, that checkout's edited
 `core/libs/prx/libc/CMakeLists.txt` names `Libc.cpp`, which does not exist.
 The CMake generation failure prevents every later build and copy command.
@@ -14,7 +14,7 @@ intact. If you already cloned the fork, do not clone it again:
 
 ```powershell
 cd "$env:USERPROFILE\Downloads\ps5translation"
-git clone --recurse-submodules --branch fix/payload-startup-audit https://github.com/nahshongraham97/AnyPS5.git AnyPS5-fork
+git clone --recurse-submodules --branch main https://github.com/nahshongraham97/AnyPS5.git AnyPS5-fork
 cd .\AnyPS5-fork
 git remote -v
 git status --short --branch
@@ -148,6 +148,10 @@ if ($LASTEXITCODE -ne 0) { throw "Relinker failed: $LASTEXITCODE" }
 syscall instructions. Those instructions are not yet routed to the guest
 kernel model. A later startup error or crash must be diagnosed separately;
 this command does not make the payload safe to run past that point.
+To distinguish imports that are merely present from those actually called
+before the first frame, use the strictly fail-fast diagnostic procedure in
+[Crispy Doom lazy trace](CrispyDoom-LazyTrace.md). It does not implement
+missing imports, startup syscalls, video or input.
 The `sigaction` export currently handles queries and simple dispositions for
 the signals supported by the host bridge. It returns a guest error for
 nonzero flags or signal masks, which cannot yet be honored; resolving this
