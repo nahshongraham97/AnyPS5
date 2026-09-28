@@ -18,6 +18,11 @@ The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully prod
 
 The real game reaches the logo, main menu, and [gameplay](https://gist.github.com/user-attachments/assets/81d28e9b-c237-4545-b2ca-720071129816) with audio.
 
+The libc `system()` compatibility export executes its command string through the
+host command shell. **A guest title can therefore execute arbitrary host
+commands with the permissions of the user running AnyPS5.** Only run guest
+binaries you trust.
+
 [Technical debt of the project](docs/TechnicalDebt.md), [code style conventions](docs/CONVENTIONS.md)
 
 ## Build

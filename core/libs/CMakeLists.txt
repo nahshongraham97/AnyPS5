@@ -380,6 +380,19 @@ if(BUILD_TESTING)
         set_tests_properties(guest_environment PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
+    add_executable(guest_system_command_tests tests/GuestSystemCommand.cpp)
+    target_include_directories(guest_system_command_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_system_command_tests PRIVATE libc)
+    configure_windows_unwind(guest_system_command_tests)
+    add_test(NAME guest_system_command COMMAND guest_system_command_tests)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/guest_system_command_working_directory")
+    set_tests_properties(guest_system_command PROPERTIES
+        TIMEOUT 20
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/guest_system_command_working_directory")
+    if(WIN32)
+        set_tests_properties(guest_system_command PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_executable(guest_standard_stream_tests tests/GuestStandardStreams.cpp)
     target_include_directories(guest_standard_stream_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(guest_standard_stream_tests PRIVATE libc)
