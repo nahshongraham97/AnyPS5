@@ -62,9 +62,9 @@ jobs:
       - name: Build and run registered CI tests
         shell: pwsh
         run: |
-          cmake --build build --target guest_system_configuration_tests guest_condition_variable_tests guest_signal_tests guest_wide_strings_tests guest_allocated_formatting_tests guest_scanning_tests guest_file_scanning_tests guest_collation_tests strict_nid_filter_tests amd64_only_converter_tests windows_dependency_diagnostics_tests amd64_only_windows_tests --parallel 4
+          cmake --build build --target guest_system_configuration_tests guest_condition_variable_tests guest_sync_on_address_tests guest_signal_tests guest_wide_strings_tests guest_allocated_formatting_tests guest_scanning_tests guest_file_scanning_tests guest_collation_tests strict_nid_filter_tests amd64_only_converter_tests windows_dependency_diagnostics_tests amd64_only_windows_tests --parallel 4
           if ($LASTEXITCODE -ne 0) { throw 'CI test target build failed' }
-          ctest --test-dir build -R '^(guest_system_configuration|guest_condition_variable|guest_signals|guest_wide_strings|guest_allocated_formatting|guest_scanning|guest_file_scanning|guest_collation|strict_nid_filter|amd64_only_converter|windows_dependency_diagnostics|amd64_only_windows|optional_plt|empty_tls|tls_function_coverage|linux_load_alignment|windows_gui)$' --output-on-failure
+          ctest --test-dir build -R '^(guest_system_configuration|guest_condition_variable|guest_sync_on_address|guest_signals|guest_wide_strings|guest_allocated_formatting|guest_scanning|guest_file_scanning|guest_collation|strict_nid_filter|amd64_only_converter|windows_dependency_diagnostics|amd64_only_windows|optional_plt|empty_tls|tls_function_coverage|linux_load_alignment|windows_gui)$' --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'CI tests failed' }
 
       - name: Verify patched libc wide conversion exports
@@ -95,6 +95,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot read patched kernel exports' }
           foreach ($nid in @('DFmMT80xcNI', 'RXXqi4CtF8w', 'KiJEPEWRyUY')) {
             if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched kernel export: $nid" }
+          }
+          foreach ($nid in @('Hc4CaR6JBL0', 'B2n8aDorSH4', 'PZQhiiLXRFs', 'q2y-wDIVWZA')) {
+            if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing address synchronization export: $nid" }
           }
 
       - name: List built binaries (for debug)
