@@ -4,6 +4,7 @@
 #include <codegen/x86/X64InstructionDecoder.hpp>
 #include <codegen/CodegenException.hpp>
 #include <io/BufferUtils.hpp>
+#include <algorithm>
 #include <limits>
 #include <map>
 #include <string>
@@ -11,6 +12,8 @@
 namespace Relinker {
 
 namespace {
+
+constexpr std::uint64_t GnuHashTag = 0x6ffffef5;
 
 class CodePointers : public UnusedNidFilter::IRelativeRelocationIndex {
 public:
@@ -55,7 +58,7 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
             const auto tag = Io::ReadU64(bytes, offset);
             if (tag == 0) { terminated = true; break; }
             const auto value = Io::ReadU64(bytes, offset + 8);
-            if (tag == 1 || (tag >= 0x61000000 && tag != 0x6100003f && (tag < 0x61000027 || tag > 0x6100003b))) continue;
+            if (tag == 1 || (tag >= 0x61000000 && tag != 0x6100003f && tag != GnuHashTag && (tag < 0x61000027 || tag > 0x6100003b))) continue;
             if (!tags.emplace(tag, value).second) throw Domain::RelinkerException("Code analysis: duplicate dynamic tag", offset);
         }
         if (!terminated) throw Domain::RelinkerException("Code analysis: unterminated dynamic segment");
@@ -106,6 +109,59 @@ std::set<Domain::VirtualAddress> CodeInstructionCollector::Collect(const std::ve
         if (*symbolBytes % 24 != 0) throw Domain::RelinkerException("Code analysis: invalid symbol table size");
         symbolCount = *symbolBytes / 24;
     } else if (tags.contains(4)) symbolCount = Io::ReadU32(bytes, fileOffset(tags.at(4), 8) + 4);
+    else if (tags.contains(GnuHashTag)) {
+        const auto address = tags.at(GnuHashTag);
+        const Domain::ProgramHeader* segment = nullptr;
+        std::uint64_t hashOffset = 0;
+        std::uint64_t availableBytes = 0;
+        for (const auto& header : headers) {
+            if (header.Type != 1 || address < header.MappedAddress || address - header.MappedAddress > header.FileSize)
+                continue;
+            const auto segmentOffset = address - header.MappedAddress;
+            if (header.FileSize - segmentOffset < 16) continue;
+            segment = &header;
+            hashOffset = fileOffset(address, 16);
+            availableBytes = header.FileSize - segmentOffset;
+            break;
+        }
+        if (segment == nullptr || hashOffset > bytes.size() || availableBytes > bytes.size() - hashOffset)
+            throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+        const auto readHashWord = [&](std::uint64_t offset) {
+            if (offset > availableBytes || availableBytes - offset < 4)
+                throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+            return Io::ReadU32(bytes, hashOffset + offset);
+        };
+        const auto bucketCount = readHashWord(0);
+        const auto firstHashedSymbol = readHashWord(4);
+        const auto bloomCount = readHashWord(8);
+        if (bucketCount == 0 || firstHashedSymbol == 0 || bloomCount == 0)
+            throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+        if (bloomCount > (std::numeric_limits<std::uint64_t>::max() - 16) / 8)
+            throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+        const auto bucketsOffset = 16 + static_cast<std::uint64_t>(bloomCount) * 8;
+        if (bucketsOffset > availableBytes || bucketCount > (availableBytes - bucketsOffset) / 4)
+            throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+        const auto chainsOffset = bucketsOffset + static_cast<std::uint64_t>(bucketCount) * 4;
+        const auto chainCount = (availableBytes - chainsOffset) / 4;
+        symbolCount = firstHashedSymbol;
+        for (std::uint64_t bucket = 0; bucket < bucketCount; ++bucket) {
+            auto symbol = readHashWord(bucketsOffset + bucket * 4);
+            if (symbol == 0) continue;
+            if (symbol < firstHashedSymbol)
+                throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+            for (;;) {
+                const auto chainIndex = static_cast<std::uint64_t>(symbol) - firstHashedSymbol;
+                if (chainIndex >= chainCount)
+                    throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+                const auto chain = readHashWord(chainsOffset + chainIndex * 4);
+                symbolCount = std::max(symbolCount, static_cast<std::uint64_t>(symbol) + 1);
+                if ((chain & 1) != 0) break;
+                if (symbol == std::numeric_limits<std::uint32_t>::max())
+                    throw Domain::RelinkerException("Code analysis: invalid GNU hash table", address);
+                ++symbol;
+            }
+        }
+    }
     std::uint64_t symbols = 0;
     if (symbolCount != 0) {
         if (value(11, 0x6100003b) != 24) throw Domain::RelinkerException("Code analysis: invalid symbol entry size");
