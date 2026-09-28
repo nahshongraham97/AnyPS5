@@ -15,6 +15,8 @@
 namespace {
 
 constexpr int sceTimedOut = static_cast<int>(0x8002003cu);
+constexpr int sceBusy = static_cast<int>(0x80020010u);
+constexpr int scePermission = static_cast<int>(0x80020001u);
 std::mutex condInitializationMutex;
 
 PthreadCond destroyedCond() {
@@ -38,18 +40,28 @@ PthreadCond resolveCond(PthreadCond* cond) {
     return created;
 }
 
-PthreadMutex lockedMutex(PthreadMutex* mutex) {
+PthreadMutex resolveMutex(PthreadMutex* mutex) {
     if (!mutex || !*mutex)
         throw std::invalid_argument("Mutex pointer is null");
-    auto* current = *mutex;
-    if (current->_owner.load(std::memory_order_acquire) != std::this_thread::get_id())
-        throw std::runtime_error("Condition wait mutex is not owned by the current thread");
-    return current;
+    return *mutex;
 }
 
 int waitUntil(PthreadCond* cond, PthreadMutex* mutex, std::optional<std::uint64_t> deadlineNanos, const void* caller) {
     auto* c = resolveCond(cond);
-    auto* m = lockedMutex(mutex);
+    auto* m = resolveMutex(mutex);
+    if (m->_owner.load(std::memory_order_acquire) != std::this_thread::get_id() ||
+        (m->_type == MutexType::Recursive && m->_count != 1))
+        return scePermission;
+    {
+        std::lock_guard lock(condInitializationMutex);
+        if (std::atomic_ref<PthreadCond>(*cond).load(std::memory_order_acquire) != c)
+            throw std::runtime_error("Condition variable has been destroyed");
+        c->_waiters.fetch_add(1, std::memory_order_acq_rel);
+    }
+    struct Waiter {
+        PthreadCondPrivate* cond;
+        ~Waiter() { cond->_waiters.fetch_sub(1, std::memory_order_acq_rel); }
+    } waiter{c};
     bool timedOut = false;
     const auto waitStart = std::chrono::steady_clock::now();
     struct Trace {
@@ -127,8 +139,10 @@ int APS5_VABI scePthreadCondDestroy(PthreadCond* cond) {
     if (!cond)
         throw std::invalid_argument("Condition variable pointer is null");
     std::lock_guard lock(condInitializationMutex);
-    if (*cond == destroyedCond())
+    if (!*cond || *cond == destroyedCond())
         throw std::runtime_error("Condition variable has already been destroyed");
+    if ((*cond)->_waiters.load(std::memory_order_acquire) != 0)
+        return sceBusy;
     delete *cond;
     std::atomic_ref<PthreadCond>(*cond).store(destroyedCond(), std::memory_order_release);
     return 0;

@@ -49,6 +49,7 @@ struct PthreadCondattrPrivate {
 struct PthreadCondPrivate {
     TimedWait::Condition _cv;
     int _clockid = 0;
+    std::atomic<unsigned> _waiters{0};
 };
 
 static constexpr KernelCpumask DEFAULT_THREAD_AFFINITY = 0x1FFF;

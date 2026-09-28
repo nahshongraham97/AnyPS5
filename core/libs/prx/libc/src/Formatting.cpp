@@ -3,20 +3,89 @@
 #include <cstdio>
 #include <algorithm>
 #include <cstdarg>
-#include <cctype>
+#include <new>
+#include <stdexcept>
 #include <cstring>
+#include <cctype>
 #include <string>
 
 #include "prx/libc/include/General.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/VarArgsAbi.hpp"
 #include "prx/libc/include/FileStream.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
+extern "C" int* APS5_VABI __error_nid_postfix();
 
 #ifdef _WIN32
 #include "prx/libc/include/WindowsFormatting.hpp"
+
+namespace {
+int ScanWindowsSafe(const char* input, const char* format, const void* args) noexcept {
+    try {
+        return LibcDetail::ScanWindows(input, format, args);
+    } catch (const std::bad_alloc&) {
+        *__error_nid_postfix() = 12; // Guest ENOMEM.
+    } catch (const std::invalid_argument&) {
+        *__error_nid_postfix() = 22; // Guest EINVAL.
+    } catch (const std::out_of_range&) {
+        *__error_nid_postfix() = 22;
+    } catch (...) {
+        *__error_nid_postfix() = 5; // Guest EIO for unexpected CRT failures.
+    }
+    return -1;
+}
+int ScanStreamWindowsSafe(std::FILE* stream, const char* format, const void* args) noexcept {
+    try {
+        return LibcDetail::ScanStreamWindows(stream, format, args);
+    } catch (const std::bad_alloc&) {
+        *__error_nid_postfix() = 12;
+    } catch (const std::invalid_argument&) {
+        *__error_nid_postfix() = 22;
+    } catch (const std::out_of_range&) {
+        *__error_nid_postfix() = 22;
+    } catch (...) {
+        *__error_nid_postfix() = 5;
+    }
+    return -1;
+}
+}
 #endif
 
 extern "C" {
+
+int APS5_VABI vfscanf_nid_postfix(FileStream* stream, const char* format, VaList* args) noexcept {
+    if (!stream || !format || !args) { *__error_nid_postfix() = 22; return -1; }
+    try {
+        std::FILE* native = GetNativeStream(stream);
+#ifdef _WIN32
+        const int result = ScanStreamWindowsSafe(native, format, args);
+#else
+        const int result = std::vfscanf(native, format, *reinterpret_cast<std::va_list*>(args));
+#endif
+        stream->SyncStatus();
+        return result;
+    } catch (...) {
+        *__error_nid_postfix() = 5;
+        return -1;
+    }
+}
+
+int APS5_VABI fscanf_nid_postfix(FileStream* stream, const char* format, ...) noexcept {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vfscanf_nid_postfix(stream, format, reinterpret_cast<VaList*>(args));
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
 
 int APS5_VABI vfprintf_nid_postfix(FileStream* stream, const char* format, VaList* args) {
     auto* native = GetNativeStream(stream);
@@ -135,6 +204,15 @@ int APS5_VABI sprintf_nid_postfix(VA_ARGS) {
 
 #endif
 
+#ifdef _WIN32
+int APS5_VABI sscanf_nid_postfix(const char* input, const char* format, ...) {
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+    const int result = ScanWindowsSafe(input, format, args);
+    __builtin_sysv_va_end(args);
+    return result;
+}
+#else
 int APS5_VABI sscanf_nid_postfix(VA_ARGS) {
     LibcDetail::RegSaveArea regs;
     LibcDetail::FillRegSaveArea(regs, rdx, rcx, r8, r9, 0, 0,
@@ -147,6 +225,15 @@ int APS5_VABI sscanf_nid_postfix(VA_ARGS) {
         reinterpret_cast<const char*>(rsi),
         *va
     );
+}
+#endif
+
+int APS5_VABI vsscanf_nid_postfix(const char* input, const char* format, VaList* args) {
+#ifdef _WIN32
+    return ScanWindowsSafe(input, format, args);
+#else
+    return std::vsscanf(input, format, *reinterpret_cast<std::va_list*>(args));
+#endif
 }
 
 #ifdef _WIN32
@@ -284,6 +371,50 @@ int APS5_VABI vsnprintf_nid_postfix(char* str, size_t size, const char* format, 
     std::va_list* va = reinterpret_cast<std::va_list*>(c);
     return std::vsnprintf(str, size, format, *va);
 #endif
+}
+
+int APS5_VABI vasprintf_nid_postfix(char** output, const char* format, VaList* args) noexcept {
+    if (output == nullptr) { *__error_nid_postfix() = 22; return -1; }
+    *output = nullptr;
+    if (format == nullptr || args == nullptr) { *__error_nid_postfix() = 22; return -1; }
+    try {
+#ifdef _WIN32
+        // The guest's SysV va_list cannot be passed to the Windows CRT.
+        std::string formatted;
+        const int count = LibcDetail::FormatWindows(nullptr, 0, format, args, &formatted);
+        char* result = static_cast<char*>(ApplicationHeapAllocate_nid_no_patch(formatted.size() + 1));
+        std::memcpy(result, formatted.data(), formatted.size());
+        result[formatted.size()] = '\0';
+#else
+        auto* guestArgs = reinterpret_cast<std::va_list*>(args);
+        std::va_list measure;
+        va_copy(measure, *guestArgs);
+        const int count = std::vsnprintf(nullptr, 0, format, measure);
+        va_end(measure);
+        if (count < 0) { *__error_nid_postfix() = 22; return -1; }
+        char* result = static_cast<char*>(ApplicationHeapAllocate_nid_no_patch(static_cast<std::size_t>(count) + 1));
+        std::va_list render;
+        va_copy(render, *guestArgs);
+        const int written = std::vsnprintf(result, static_cast<std::size_t>(count) + 1, format, render);
+        va_end(render);
+        if (written != count) {
+            ApplicationHeapFree_nid_no_patch(result);
+            *__error_nid_postfix() = 5;
+            return -1;
+        }
+#endif
+        *output = result;
+        return count;
+    } catch (const std::bad_alloc&) {
+        *__error_nid_postfix() = 12;
+    } catch (const std::invalid_argument&) {
+        *__error_nid_postfix() = 22;
+    } catch (const std::overflow_error&) {
+        *__error_nid_postfix() = 84;
+    } catch (...) {
+        *__error_nid_postfix() = 5;
+    }
+    return -1;
 }
 
 #ifdef _WIN32

@@ -1,4 +1,6 @@
 add_executable(relinker
+        ${CMAKE_SOURCE_DIR}/core/libs/nid/src/NidCompute.cpp
+        ${CMAKE_SOURCE_DIR}/core/libs/nid/src/Sha1.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/CliArgs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/Autorun.cpp
@@ -56,6 +58,7 @@ add_executable(relinker
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/pipeline/RelinkerPipeline.cpp
 )
 target_include_directories(relinker PRIVATE
+        ${CMAKE_SOURCE_DIR}/core/libs/nid/include
         ${CMAKE_CURRENT_SOURCE_DIR}/cli/include
         ${CMAKE_CURRENT_SOURCE_DIR}/domain/include
         ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/include
@@ -147,6 +150,8 @@ if(BUILD_TESTING)
 
     find_package(Python3 QUIET COMPONENTS Interpreter)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME payload_startup_audit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+            -s ${CMAKE_SOURCE_DIR}/scripts/tests -p test_audit_payload_startup.py)
         add_test(NAME optional_plt COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/test_optional_plt.py $<TARGET_FILE:relinker>)
         add_test(NAME empty_tls COMMAND ${Python3_EXECUTABLE}

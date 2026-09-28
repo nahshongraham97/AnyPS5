@@ -4,6 +4,7 @@
 #include "prx/libc/include/CpuTopology.hpp"
 #include <algorithm>
 #include <cstdlib>
+#include <cerrno>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -23,6 +24,8 @@ static constexpr int SCE_KERNEL_ERROR_EINVAL = 0x80020016;
 
 static constexpr std::size_t DEFAULT_STACK_SIZE = 1u << 20;
 static constexpr int DETACH_DETACHED = 1;
+static thread_local int guestCancelState = 0; // PTHREAD_CANCEL_ENABLE
+static thread_local int guestCancelType = 0;  // PTHREAD_CANCEL_DEFERRED
 static constexpr std::size_t THREAD_NAME_CAPACITY = 32;
 
 #ifdef _WIN32
@@ -384,15 +387,34 @@ int APS5_VABI scePthreadGetthreadid(void) {
 }
 
 int APS5_VABI scePthreadRename(Pthread thread, const char* name) {
-    if (!thread || !name) return SCE_KERNEL_ERROR_EINVAL;
-    std::lock_guard lock(thread->nameLock);
-    thread->name = name;
+    if (name == nullptr || name[0] == '\0') return SCE_KERNEL_ERROR_EINVAL;
+    auto* target = thread ? thread : currentThread;
 #ifdef _WIN32
-    const std::wstring description(thread->name.begin(), thread->name.end());
-    SetThreadDescription(static_cast<HANDLE>(thread->nativeHandle), description.c_str());
-    ApplyJobAffinity(*thread, thread->nativeHandle);
-#endif
+    const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, nullptr, 0);
+    if (size == 0) return SCE_KERNEL_ERROR_EINVAL;
+    std::wstring wide(static_cast<std::size_t>(size), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide.data(), size) == 0)
+        return SCE_KERNEL_ERROR_EINVAL;
+    const HANDLE handle = thread == nullptr ? GetCurrentThread() : thread->nativeHandle;
+    if (FAILED(SetThreadDescription(handle, wide.c_str()))) return SCE_KERNEL_ERROR_EINVAL;
+    if (target) {
+        std::lock_guard lock(target->nameLock);
+        target->name = name;
+    }
+    if (thread) ApplyJobAffinity(*thread, thread->nativeHandle);
     return SCE_OK;
+#else
+    // Linux limits native names to 15 bytes; truncate at that boundary.
+    const std::string nativeName(name, std::char_traits<char>::length(name));
+    if (pthread_setname_np(thread == nullptr ? pthread_self() : thread->_thr.native_handle(),
+                           nativeName.substr(0, 15).c_str()) != 0)
+        return SCE_KERNEL_ERROR_EINVAL;
+    if (target) {
+        std::lock_guard lock(target->nameLock);
+        target->name = name;
+    }
+    return SCE_OK;
+#endif
 }
 
 int APS5_VABI scePthreadSetaffinity(Pthread thread, KernelCpumask mask) {
@@ -402,16 +424,16 @@ int APS5_VABI scePthreadSetaffinity(Pthread thread, KernelCpumask mask) {
 }
 
 int APS5_VABI scePthreadSetcancelstate(int state, int* old_state) {
-    static thread_local int cancelState = 0;
-    if (old_state) *old_state = cancelState;
-    cancelState = state;
+    if (state != 0 && state != 1) return SCE_KERNEL_ERROR_EINVAL;
+    if (old_state != nullptr) *old_state = guestCancelState;
+    guestCancelState = state;
     return SCE_OK;
 }
 
 int APS5_VABI scePthreadSetcanceltype(int type, int* old_type) {
-    static thread_local int cancelType = 0;
-    if (old_type) *old_type = cancelType;
-    cancelType = type;
+    if (type != 0 && type != 2) return SCE_KERNEL_ERROR_EINVAL;
+    if (old_type != nullptr) *old_type = guestCancelType;
+    guestCancelType = type;
     return SCE_OK;
 }
 

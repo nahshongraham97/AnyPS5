@@ -70,6 +70,14 @@ int APS5_VABI sceUserServiceGetEvent(SceUserServiceEvent* event) {
  return USER_SERVICE_OK;
 }
 
+int APS5_VABI sceUserServiceGetForegroundUser(int* user_id) {
+ if (user_id == nullptr) {
+  return USER_SERVICE_ERROR_INVALID_ARGUMENT;
+ }
+ *user_id = USER_SERVICE_INITIAL_USER_ID;
+ return USER_SERVICE_OK;
+}
+
 int APS5_VABI sceUserServiceGetGamePresets(int user_id, UserServiceGamePresets* presets) {
  // System-wide game presets (difficulty, view inversion, subtitles, audio language) of the user's
  // profile. A fresh console has none set: every field is 0, "not specified", and the title falls

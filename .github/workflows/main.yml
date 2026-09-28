@@ -2,7 +2,7 @@ name: Build AnyPS5 Libraries
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'fix/**', nahshongraham97-anyps5-upstream-integration ]
   pull_request:
     branches: [ main, master ]
 
@@ -13,39 +13,100 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      - name: Set up MSYS2 & MinGW Toolchain
-        uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            git
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
+          submodules: recursive
+
+      - name: Set up WinLibs MinGW toolchain
+        shell: pwsh
+        run: |
+          $asset = 'winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64msvcrt-14.0.0-r1.7z'
+          $url = "https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-14.0.0-msvcrt-r1/$asset"
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $expected = '983f680245a3200f9a3b1ced23ed56581d752b1b7cbcc6a0cace924edf9bca0d'
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "WinLibs SHA256 mismatch: $actual" }
+          $directory = Join-Path $env:RUNNER_TEMP 'winlibs'
+          & 7z x $archive "-o$directory" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot extract WinLibs toolchain' }
+          $bin = Join-Path $directory 'mingw64\bin'
+          if (!(Test-Path (Join-Path $bin 'g++.exe'))) { throw 'WinLibs compiler was not extracted' }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
 
       - name: Configure CMake
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 
       - name: Build Libraries Target
-        shell: msys2 {0}
+        shell: pwsh
         run: |
           cmake --build build --target libs --parallel 4
 
-      - name: List built binaries (for debug)
-        shell: msys2 {0}
+      - name: Build Relinker
+        shell: pwsh
         run: |
-          echo "Built files under build/:"
-          find build -type f \( -name '*.prx' -o -name '*.sprx' \) -print || true
+          cmake --build build --target relinker --parallel 4
+
+      - name: Test SDK payload startup audit
+        shell: pwsh
+        run: |
+          python -m unittest discover -s scripts/tests -p test_audit_payload_startup.py
+
+      - name: Test ELF import audit
+        shell: pwsh
+        run: |
+          python scripts/test-audit-elf-imports.py
+          if ($LASTEXITCODE -ne 0) { throw 'ELF import audit tests failed' }
+
+      - name: Build and run registered CI tests
+        shell: pwsh
+        run: |
+          cmake --build build --target guest_system_configuration_tests guest_condition_variable_tests guest_signal_tests guest_wide_strings_tests guest_allocated_formatting_tests guest_scanning_tests guest_file_scanning_tests guest_collation_tests strict_nid_filter_tests amd64_only_converter_tests windows_dependency_diagnostics_tests amd64_only_windows_tests --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'CI test target build failed' }
+          ctest --test-dir build -R '^(guest_system_configuration|guest_condition_variable|guest_signals|guest_wide_strings|guest_allocated_formatting|guest_scanning|guest_file_scanning|guest_collation|strict_nid_filter|amd64_only_converter|windows_dependency_diagnostics|amd64_only_windows|optional_plt|empty_tls|tls_function_coverage|linux_load_alignment|windows_gui)$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'CI tests failed' }
+
+      - name: Verify patched libc wide conversion exports
+        shell: pwsh
+        run: |
+          cmake --build build --target patched_libc --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Patched libc build failed' }
+          $exports = & objdump -p build/core/libs/libs/libc.prx
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read patched libc exports' }
+          foreach ($nid in @('v7S7LhP2OJc', 'qVHpv0PxouI', 'j6OnScWpu7k', '6eU9xX9oEdQ', '8hygs6D9KBY', 'y9OoA+P5cjk')) {
+            if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched libc conversion export: $nid" }
+          }
+          if (-not ($exports | Select-String -SimpleMatch 'qjBlw2cVMAM')) { throw 'Missing patched vasprintf export' }
+          if (-not ($exports | Select-String -SimpleMatch '77pL1FoD4I4')) { throw 'Missing patched __mb_cur_max data export' }
+          foreach ($nid in @('npLpPTaSuHg', 'lckWSkHDBrY')) {
+            if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched libc file scanning export: $nid" }
+          }
+          foreach ($nid in @('gjbmYpP-XJQ', 'zogPrkd46DY', 'fV2xHER+bKE', 'VuMMb5CfpEw')) {
+            if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched libc collation export: $nid" }
+          }
+
+      - name: Verify patched kernel exports
+        shell: pwsh
+        run: |
+          cmake --build build --target patched_libkernel --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'Patched kernel build failed' }
+          $exports = & objdump -p build/core/libs/libs/libkernel.prx
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read patched kernel exports' }
+          foreach ($nid in @('DFmMT80xcNI', 'RXXqi4CtF8w', 'KiJEPEWRyUY')) {
+            if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched kernel export: $nid" }
+          }
+
+      - name: List built binaries (for debug)
+        shell: pwsh
+        run: |
+          Get-ChildItem build -Recurse -File -Include *.prx,*.sprx | Select-Object -ExpandProperty FullName
 
       - name: Upload compiled binaries
         uses: actions/upload-artifact@v4
         with:
           name: anyps5-binaries
           path: |
-            build/**/*.prx
-            build/**/*.sprx
+            build/core/libs/libs/*.prx
+            build/core/relinker/relinker.exe
           retention-days: 7

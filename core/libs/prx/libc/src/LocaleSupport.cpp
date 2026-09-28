@@ -3,9 +3,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cwchar>
-#include <cwctype>
 #include <ios>
-#include <locale>
 #include <mutex>
 #include <atomic>
 #include <cstring>
@@ -13,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <cerrno>
 
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
@@ -103,42 +102,159 @@ constexpr auto g_classificationTable = MakeClassificationTable();
 constexpr auto g_lowerTable = MakeCaseTable(false);
 constexpr auto g_upperTable = MakeCaseTable(true);
 
-void ValidateCharacter(int value) {
-    if (value != EOF && (value < 0 || value > UCHAR_MAX)) throw std::invalid_argument("Invalid character value");
-}
-
-int ClassifyCharacter(int value, std::ctype_base::mask mask) {
-    ValidateCharacter(value);
-    if (value == EOF) return 0;
-    return std::use_facet<std::ctype<char>>(std::locale::classic()).is(mask, static_cast<char>(value));
-}
-
-int ConvertCharacter(int value, bool upper) {
-    ValidateCharacter(value);
-    if (value == EOF) return EOF;
-    const auto& facet = std::use_facet<std::ctype<char>>(std::locale::classic());
-    const auto character = static_cast<char>(value);
-    return static_cast<unsigned char>(upper ? facet.toupper(character) : facet.tolower(character));
-}
-
 }
 
 extern "C" {
 
-int APS5_VABI isupper_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::upper); }
-int APS5_VABI islower_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::lower); }
-int APS5_VABI isalpha_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::alpha); }
-int APS5_VABI isdigit_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::digit); }
-int APS5_VABI isalnum_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::alnum); }
-int APS5_VABI isspace_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::space); }
-int APS5_VABI isblank_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::blank); }
-int APS5_VABI iscntrl_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::cntrl); }
-int APS5_VABI isprint_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::print); }
-int APS5_VABI isgraph_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::graph); }
-int APS5_VABI ispunct_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::punct); }
-int APS5_VABI isxdigit_nid_postfix(int c) { return ClassifyCharacter(c, std::ctype_base::xdigit); }
-int APS5_VABI toupper_nid_postfix(int c) { return ConvertCharacter(c, true); }
-int APS5_VABI tolower_nid_postfix(int c) { return ConvertCharacter(c, false); }
+// FreeBSD's MB_CUR_MAX reads this exported int. The only supported guest
+// locale is C, whose multibyte characters occupy one byte.
+int __mb_cur_max_nid_postfix = 1;
+
+// The runtime currently exposes the classic C locale. Keep byte classification
+// independent of any locale selected by host-side libraries.
+// Guest FreeBSD locale categories are LC_ALL=0 through LC_MESSAGES=6.
+// The empty locale selects the runtime default, which is currently C.
+char* APS5_VABI setlocale_nid_postfix(int category, const char* locale) {
+    if (category < 0 || category > 6) return nullptr;
+    if (locale != nullptr && locale[0] != '\0' && std::strcmp(locale, "C") != 0 &&
+        std::strcmp(locale, "POSIX") != 0) return nullptr;
+    static char classicName[] = "C";
+    return classicName;
+}
+
+// The classic locale collates by code-unit value; transformed keys can be
+// compared with strcmp / guest-width wcscmp in exactly the same order.
+int APS5_VABI strcoll_nid_postfix(const char* left, const char* right) {
+    return std::strcmp(left, right);
+}
+
+std::size_t APS5_VABI strxfrm_nid_postfix(char* destination, const char* source,
+                                          std::size_t capacity) {
+    const auto length = std::strlen(source);
+    if (capacity != 0) {
+        const auto copied = length < capacity ? length + 1 : capacity;
+        std::memcpy(destination, source, copied);
+    }
+    return length;
+}
+
+int APS5_VABI wcscoll_nid_postfix(const std::uint16_t* left, const std::uint16_t* right) {
+    while (*left != 0 && *left == *right) { ++left; ++right; }
+    return *left < *right ? -1 : *left > *right ? 1 : 0;
+}
+
+std::size_t APS5_VABI wcsxfrm_nid_postfix(std::uint16_t* destination,
+                                           const std::uint16_t* source, std::size_t capacity) {
+    std::size_t length = 0;
+    while (source[length] != 0) ++length;
+    if (capacity != 0) {
+        const auto copied = length < capacity ? length + 1 : capacity;
+        std::memcpy(destination, source, copied * sizeof(*source));
+    }
+    return length;
+}
+
+// The guest SDK uses 16-bit wchar_t. Only the classic C locale is modeled;
+// its multibyte representation is single-byte ASCII, not the host CRT locale.
+std::size_t APS5_VABI wcstombs_nid_postfix(char* destination, const std::uint16_t* source,
+                                           std::size_t capacity) {
+    if (source == nullptr) { errno = 22; return static_cast<std::size_t>(-1); }
+    std::size_t converted = 0;
+    for (;;) {
+        // A null destination requests the full required length, irrespective of capacity.
+        if (destination != nullptr && converted == capacity) return converted;
+        const auto character = source[converted];
+        if (character == 0) {
+            if (destination != nullptr) destination[converted] = '\0';
+            return converted;
+        }
+        if (character > 0x7f) { errno = 86; return static_cast<std::size_t>(-1); }
+        if (destination != nullptr) destination[converted] = static_cast<char>(character);
+        ++converted;
+    }
+}
+
+// The C locale is stateless. Keep the guest mbstate_t opaque: a host mbstate_t
+// can have a different layout and must not be used to interpret guest memory.
+std::size_t APS5_VABI mbrtowc_nid_postfix(std::uint16_t* destination, const char* source,
+                                          std::size_t count, void* state) {
+    (void)state;
+    if (source == nullptr) return 0;
+    if (count == 0) return static_cast<std::size_t>(-2);
+    const auto character = static_cast<unsigned char>(*source);
+    if (character > 0x7f) { errno = 86; return static_cast<std::size_t>(-1); }
+    if (destination != nullptr) *destination = character;
+    return character == 0 ? 0 : 1;
+}
+
+std::size_t APS5_VABI mbrlen_nid_postfix(const char* source, std::size_t count, void* state) {
+    return mbrtowc_nid_postfix(nullptr, source, count, state);
+}
+
+int APS5_VABI mbtowc_nid_postfix(std::uint16_t* destination, const char* source,
+                                 std::size_t count) {
+    if (source == nullptr) return 0; // The C locale has no shift state.
+    const auto result = mbrtowc_nid_postfix(destination, source, count, nullptr);
+    if (result == static_cast<std::size_t>(-2)) { errno = 86; return -1; }
+    if (result == static_cast<std::size_t>(-1)) return -1;
+    return static_cast<int>(result);
+}
+
+std::size_t APS5_VABI mbsrtowcs_nid_postfix(std::uint16_t* destination, const char** source,
+                                             std::size_t capacity, void* state) {
+    (void)state;
+    if (source == nullptr || *source == nullptr) { errno = 22; return static_cast<std::size_t>(-1); }
+    const char* cursor = *source;
+    std::size_t converted = 0;
+    for (;;) {
+        if (destination != nullptr && converted == capacity) {
+            *source = cursor;
+            return converted;
+        }
+        const auto character = static_cast<unsigned char>(*cursor);
+        if (character > 0x7f) {
+            if (destination != nullptr) *source = cursor;
+            errno = 86;
+            return static_cast<std::size_t>(-1);
+        }
+        if (character == 0) {
+            if (destination != nullptr) {
+                destination[converted] = 0;
+                *source = nullptr;
+            }
+            return converted;
+        }
+        if (destination != nullptr) destination[converted] = character;
+        ++cursor;
+        ++converted;
+    }
+}
+
+std::size_t APS5_VABI wcrtomb_nid_postfix(char* destination, std::uint16_t character,
+                                           void* state) {
+    (void)state;
+    if (destination == nullptr) return 1; // Encoding the null character resets the C locale.
+    if (character > 0x7f) { errno = 86; return static_cast<std::size_t>(-1); }
+    *destination = static_cast<char>(character);
+    return 1;
+}
+
+int APS5_VABI isupper_nid_postfix(int c) { return c >= 'A' && c <= 'Z'; }
+int APS5_VABI islower_nid_postfix(int c) { return c >= 'a' && c <= 'z'; }
+int APS5_VABI isalpha_nid_postfix(int c) { return isupper_nid_postfix(c) || islower_nid_postfix(c); }
+int APS5_VABI isdigit_nid_postfix(int c) { return c >= '0' && c <= '9'; }
+int APS5_VABI isalnum_nid_postfix(int c) { return isalpha_nid_postfix(c) || isdigit_nid_postfix(c); }
+int APS5_VABI isspace_nid_postfix(int c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
+int APS5_VABI isblank_nid_postfix(int c) { return c == ' ' || c == '\t'; }
+int APS5_VABI iscntrl_nid_postfix(int c) { return (c >= 0 && c < 32) || c == 127; }
+int APS5_VABI isprint_nid_postfix(int c) { return c >= 32 && c <= 126; }
+int APS5_VABI isgraph_nid_postfix(int c) { return c >= 33 && c <= 126; }
+int APS5_VABI ispunct_nid_postfix(int c) { return isgraph_nid_postfix(c) && !isalnum_nid_postfix(c); }
+int APS5_VABI isxdigit_nid_postfix(int c) {
+    return isdigit_nid_postfix(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+int APS5_VABI toupper_nid_postfix(int c) { return islower_nid_postfix(c) ? c - ('a' - 'A') : c; }
+int APS5_VABI tolower_nid_postfix(int c) { return isupper_nid_postfix(c) ? c + ('a' - 'A') : c; }
 
 std::uint64_t _ZNSt5ctypeIcE2idE_nid_postfix = 0;
 std::uint64_t _ZNSt5ctypeIwE2idE_nid_postfix = 0;
