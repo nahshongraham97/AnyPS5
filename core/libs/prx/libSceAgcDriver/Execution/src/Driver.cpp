@@ -11,6 +11,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Texture.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include "prx/libc/include/CpuTopology.hpp"
 #include "ControlFlow/RequestSerializer.hpp"
@@ -460,24 +461,34 @@ public:
 
     void Shutdown() {
         stop();
-        CheckFailure();
+        std::lock_guard lock(mutex);
+        rethrowFailure();
     }
 
 private:
     void stop() {
         require(!OnWorkerThread(), "worker cannot stop itself");
         std::lock_guard shutdownLock(shutdownMutex);
+        if (stopped) return;
+        LibcRequestShutdown_nid_postfix();
         {
             std::lock_guard lock(mutex);
             stopping = true;
+            for (auto& [queue, worker] : workers) {
+                worker.pending.clear();
+                worker.queued.store(0, std::memory_order_release);
+            }
         }
         changed.notify_all();
-        // No worker is added once `stopping` is set, so the map is stable while the threads finish.
         for (auto& [queue, worker] : workers) {
             if (worker.thread.joinable()) worker.thread.join();
         }
+        StopWorkerSampler();
         std::lock_guard gpuLock(GuestMemory::GpuMutex());
         device.reset();
+        replacedDevices.clear();
+        Graphics::ShutdownGuestBufferWorkers();
+        stopped = true;
     }
 
 public:
@@ -506,7 +517,7 @@ public:
         {
             std::lock_guard lock(mutex);
             rethrowFailure();
-            require(!stopping, "submission during shutdown");
+            checkStopping();
             require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
             for (std::size_t cursor = 0; cursor < submission.commands.size();) {
                 const auto* words = submission.commands.data() + cursor;
@@ -550,16 +561,17 @@ public:
         std::unique_lock lock(mutex);
         const auto target = accepted;
         ++idleWaiters;
-        changed.wait(lock, [&] { return failure != nullptr || completed >= target; });
+        changed.wait(lock, [&] { return failure != nullptr || stopping || completed >= target; });
         --idleWaiters;
         rethrowFailure();
+        checkStopping();
     }
 
     void SuspendPoint() {
         require(!OnWorkerThread(), "worker cannot suspend itself");
         std::unique_lock lock(mutex);
         rethrowFailure();
-        require(!stopping, "suspend during shutdown");
+        checkStopping();
         require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
         Submission boundary{};
         boundary.serial = accepted + 1;
@@ -578,7 +590,7 @@ public:
         require(output != nullptr, "null video output");
         std::lock_guard lock(mutex);
         rethrowFailure();
-        require(!stopping, "video output registration during shutdown");
+        checkStopping();
         require(outputs.emplace(handle, output).second, "video output already registered");
     }
 
@@ -592,9 +604,11 @@ public:
     // Called per packet and per poll of a wait: the flag keeps the driver mutex out of those loops
     // until a failure exists, and `failure` itself is still read under the mutex.
     void CheckFailure() {
-        if (!failed.load(std::memory_order_acquire)) return;
-        std::lock_guard lock(mutex);
-        rethrowFailure();
+        if (failed.load(std::memory_order_acquire)) {
+            std::lock_guard lock(mutex);
+            rethrowFailure();
+        }
+        checkStopping();
     }
 
     void ReportFailure(std::exception_ptr error) {
@@ -654,7 +668,6 @@ public:
                 if (device == nullptr || device->Window() == nullptr) {
                     if (device) {
                         device->PrepareForReplacement();
-                        static std::vector<std::shared_ptr<VulkanDevice>> replacedDevices;
                         replacedDevices.push_back(device);
                     }
                     device = std::make_shared<VulkanDevice>(&window);
@@ -722,6 +735,8 @@ public:
             timing.Mark("release_and_callback");
             if (profile) reportPresents(waitedMs, inFlight);
             CheckFailure();
+        } catch (const ProcessShutdown&) {
+            throw;
         } catch (...) {
             ReportFailure(std::current_exception());
             throw;
@@ -1450,13 +1465,16 @@ private:
     std::map<std::uint32_t, QueueState> queues;
     std::map<std::uint32_t, std::shared_ptr<IVideoOutput>> outputs;
     DevicePointer device;
+    std::vector<std::shared_ptr<VulkanDevice>> replacedDevices;
+    std::stop_token shutdownToken = LibcShutdownToken_nid_postfix();
     std::uint64_t accepted = 0;
     std::uint64_t completed = 0;
     std::set<std::uint64_t> completedOutOfOrder;
     std::exception_ptr failure;
     // Set once `failure` is, so hot loops can check for one without the mutex.
     std::atomic<bool> failed{false};
-    bool stopping = false;
+    std::atomic<bool> stopping{false};
+    bool stopped = false;
     bool resetGraphics = false;
     // Threads in WaitIdle (under `mutex`): a worker's completion notifies only while one waits.
     std::uint32_t idleWaiters = 0;
@@ -1489,6 +1507,10 @@ private:
         if (failure != nullptr) {
             std::rethrow_exception(failure);
         }
+    }
+
+    void checkStopping() const {
+        if (stopping.load(std::memory_order_acquire) || shutdownToken.stop_requested()) throw ProcessShutdown{};
     }
 
     // Summarizes a rejected submission (packet names with counts and the first rejection reason per name).
@@ -6116,7 +6138,7 @@ private:
                         lock.lock();
                     }
                     rethrowFailure();
-                    if (pending.empty()) {
+                    if (stopping || shutdownToken.stop_requested() || pending.empty()) {
                         break;
                     }
                     submission = std::move(pending.front());
@@ -6140,6 +6162,8 @@ private:
                 else ++costs.notifiesSkipped;
                 if (profile) costs.completeNs += static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - completeStart).count());
             }
+        } catch (const ProcessShutdown&) {
+            submission = Submission{};
         } catch (...) {
             const auto error = std::current_exception();
             try {
@@ -6157,12 +6181,18 @@ private:
 
 }
 
-void Submit(const Packet* packet, std::uint32_t queue) {
+void Submit(const Packet* packet, std::uint32_t queue) try {
     Driver::Get().Submit(packet, queue);
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
 }
 
 void WaitIdle() {
     Driver::Get().WaitIdle();
+}
+
+void Shutdown() {
+    Driver::Get().Shutdown();
 }
 
 void RegisterShader(const Shader* shader) {
@@ -6199,16 +6229,26 @@ void ReportFailure(std::exception_ptr error) {
 
 }
 
-extern "C" void AgcDriverWaitIdle_nid_postfix() {
+extern "C" void AgcDriverWaitIdle_nid_postfix() try {
     AgcDriver::WaitIdle();
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
 }
 
-extern "C" void AgcDriverRegisterShader_nid_postfix(const Shader* shader) {
+extern "C" void AgcDriverShutdown_nid_postfix() {
+    AgcDriver::Shutdown();
+}
+
+extern "C" void AgcDriverRegisterShader_nid_postfix(const Shader* shader) try {
     AgcDriver::RegisterShader(shader);
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
 }
 
-extern "C" void AgcDriverSuspendPoint_nid_postfix() {
+extern "C" void AgcDriverSuspendPoint_nid_postfix() try {
     AgcDriver::SuspendPoint();
+} catch (const ProcessShutdown&) {
+    LibcAwaitExit_nid_postfix();
 }
 
 extern "C" void AgcDriverRegisterVideoOutput_nid_postfix(std::uint32_t handle, const std::shared_ptr<AgcDriver::IVideoOutput>& output) {
