@@ -6,6 +6,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -334,6 +335,48 @@ int APS5_VABI sceNetSocketAbort(int s, int flags) {
     (void)s;
     (void)flags;
     return Fail(GUEST_EBADF);
+}
+
+// The imported libc spellings use a four-byte network-order in_addr. Keep the
+// bytes intact instead of relying on the host's integer byte order or Winsock.
+static bool ParseIpv4(const char* text, uint8_t (&octets)[4]) {
+    if (text == nullptr) return false;
+    for (int index = 0; index < 4; ++index) {
+        if (*text < '0' || *text > '9') return false;
+        unsigned value = 0;
+        do {
+            value = value * 10 + static_cast<unsigned>(*text++ - '0');
+            if (value > 255) return false;
+        } while (*text >= '0' && *text <= '9');
+        octets[index] = static_cast<uint8_t>(value);
+        if (index < 3) {
+            if (*text++ != '.') return false;
+        } else if (*text != '\0') {
+            return false;
+        }
+    }
+    return true;
+}
+
+int APS5_VABI __inet_aton_nid_postfix(const char* text, void* address) {
+    if (address == nullptr) return 0;
+    uint8_t octets[4];
+    if (!ParseIpv4(text, octets)) return 0;
+    std::memcpy(address, octets, sizeof(octets));
+    return 1;
+}
+
+uint32_t APS5_VABI __inet_addr_nid_postfix(const char* text) {
+    uint32_t address = UINT32_MAX;
+    __inet_aton_nid_postfix(text, &address);
+    return address;
+}
+
+char* APS5_VABI __inet_ntoa_nid_postfix(uint32_t address) {
+    static thread_local char text[16];
+    const auto* octets = reinterpret_cast<const uint8_t*>(&address);
+    std::snprintf(text, sizeof(text), "%u.%u.%u.%u", octets[0], octets[1], octets[2], octets[3]);
+    return text;
 }
 
 }

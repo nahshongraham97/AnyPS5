@@ -82,6 +82,8 @@ int APS5_VABI __signbitf_nid_postfix(float x) { return std::signbit(x) ? 1 : 0; 
 
 static std::mutex g_randLock;
 static std::uint32_t g_randState = 1;
+static std::mutex g_randomLock;
+static std::uint64_t g_randomState = 1;
 
 int APS5_VABI rand_nid_postfix() {
     std::lock_guard lock(g_randLock);
@@ -95,6 +97,22 @@ int APS5_VABI rand_nid_postfix() {
 void APS5_VABI srand_nid_postfix(unsigned int seed) {
     std::lock_guard lock(g_randLock);
     g_randState = seed;
+}
+
+// random() is a separate, seeded 31-bit generator. The POSIX interface does
+// not specify a sequence, so do not couple it to the guest's rand() state.
+void APS5_VABI srandom_nid_postfix(unsigned int seed) {
+    std::lock_guard lock(g_randomLock);
+    g_randomState = seed == 0 ? 1 : seed;
+}
+
+std::int64_t APS5_VABI random_nid_postfix() {
+    std::lock_guard lock(g_randomLock);
+    g_randomState ^= g_randomState >> 12;
+    g_randomState ^= g_randomState << 25;
+    g_randomState ^= g_randomState >> 27;
+    const std::uint64_t value = g_randomState * UINT64_C(2685821657736338717);
+    return static_cast<std::int64_t>((value >> 33) & UINT64_C(0x7fffffff));
 }
 
 }
