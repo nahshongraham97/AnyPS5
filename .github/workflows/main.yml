@@ -62,12 +62,12 @@ jobs:
       - name: Build and run registered CI tests
         shell: pwsh
         run: |
-          cmake --build build --target guest_system_configuration_tests guest_condition_variable_tests guest_sync_on_address_tests guest_signal_tests guest_wide_strings_tests guest_allocated_formatting_tests guest_scanning_tests guest_file_scanning_tests guest_collation_tests strict_nid_filter_tests amd64_only_converter_tests windows_dependency_diagnostics_tests amd64_only_windows_tests --parallel 4
+          cmake --build build --target guest_system_configuration_tests guest_system_command_tests guest_condition_variable_tests guest_sync_on_address_tests guest_signal_tests guest_wide_strings_tests guest_allocated_formatting_tests guest_scanning_tests guest_file_scanning_tests guest_collation_tests strict_nid_filter_tests amd64_only_converter_tests windows_dependency_diagnostics_tests amd64_only_windows_tests --parallel 4
           if ($LASTEXITCODE -ne 0) { throw 'CI test target build failed' }
-          ctest --test-dir build -R '^(guest_system_configuration|guest_condition_variable|guest_sync_on_address|guest_signals|guest_wide_strings|guest_allocated_formatting|guest_scanning|guest_file_scanning|guest_collation|strict_nid_filter|amd64_only_converter|windows_dependency_diagnostics|amd64_only_windows|optional_plt|empty_tls|tls_function_coverage|linux_load_alignment|windows_gui)$' --output-on-failure
+          ctest --test-dir build -R '^(guest_system_configuration|guest_system_command|guest_condition_variable|guest_sync_on_address|guest_signals|guest_wide_strings|guest_allocated_formatting|guest_scanning|guest_file_scanning|guest_collation|strict_nid_filter|amd64_only_converter|windows_dependency_diagnostics|amd64_only_windows|optional_plt|empty_tls|tls_function_coverage|linux_load_alignment|windows_gui)$' --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'CI tests failed' }
 
-      - name: Verify patched libc wide conversion exports
+      - name: Verify patched libc exports
         shell: pwsh
         run: |
           cmake --build build --target patched_libc --parallel 4
@@ -79,6 +79,7 @@ jobs:
           }
           if (-not ($exports | Select-String -SimpleMatch 'qjBlw2cVMAM')) { throw 'Missing patched vasprintf export' }
           if (-not ($exports | Select-String -SimpleMatch '77pL1FoD4I4')) { throw 'Missing patched __mb_cur_max data export' }
+          if (-not ($exports | Select-String -SimpleMatch 'Jc6E7N+dHz0')) { throw 'Missing patched system export' }
           foreach ($nid in @('npLpPTaSuHg', 'lckWSkHDBrY')) {
             if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched libc file scanning export: $nid" }
           }
