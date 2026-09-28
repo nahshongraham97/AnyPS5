@@ -2,7 +2,7 @@ name: Build AnyPS5 Libraries
 
 on:
   push:
-    branches: [ main, master, 'fix/**' ]
+    branches: [ main, master, 'fix/**', nahshongraham97-anyps5-upstream-integration ]
   pull_request:
     branches: [ main, master ]
 
@@ -53,61 +53,19 @@ jobs:
         run: |
           python -m unittest discover -s scripts/tests -p test_audit_payload_startup.py
 
-      - name: Test guest system configuration
+      - name: Test ELF import audit
         shell: pwsh
         run: |
-          cmake --build build --target guest_system_configuration_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest system configuration build failed' }
-          ctest --test-dir build -R '^guest_system_configuration$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest system configuration test failed' }
+          python scripts/test-audit-elf-imports.py
+          if ($LASTEXITCODE -ne 0) { throw 'ELF import audit tests failed' }
 
-      - name: Test guest condition variable
+      - name: Build and run registered CI tests
         shell: pwsh
         run: |
-          cmake --build build --target guest_condition_variable_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest condition variable build failed' }
-          ctest --test-dir build -R '^guest_condition_variable$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest condition variable test failed' }
-
-      - name: Test guest signal action
-        shell: pwsh
-        run: |
-          cmake --build build --target guest_signal_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest signal build failed' }
-          ctest --test-dir build -R '^guest_signals$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest signal test failed' }
-
-      - name: Test guest wide character conversion
-        shell: pwsh
-        run: |
-          cmake --build build --target guest_wide_strings_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest wide character build failed' }
-          ctest --test-dir build -R '^guest_wide_strings$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest wide character test failed' }
-
-      - name: Test guest allocated formatting
-        shell: pwsh
-        run: |
-          cmake --build build --target guest_allocated_formatting_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest allocated formatting build failed' }
-          ctest --test-dir build -R '^guest_allocated_formatting$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest allocated formatting test failed' }
-
-      - name: Test guest file scanning
-        shell: pwsh
-        run: |
-          cmake --build build --target guest_file_scanning_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest file scanning build failed' }
-          ctest --test-dir build -R '^guest_file_scanning$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest file scanning test failed' }
-
-      - name: Test guest collation
-        shell: pwsh
-        run: |
-          cmake --build build --target guest_collation_tests --parallel 4
-          if ($LASTEXITCODE -ne 0) { throw 'Guest collation build failed' }
-          ctest --test-dir build -R '^guest_collation$' --output-on-failure
-          if ($LASTEXITCODE -ne 0) { throw 'Guest collation test failed' }
+          cmake --build build --target guest_system_configuration_tests guest_condition_variable_tests guest_signal_tests guest_wide_strings_tests guest_allocated_formatting_tests guest_scanning_tests guest_file_scanning_tests guest_collation_tests strict_nid_filter_tests amd64_only_converter_tests windows_dependency_diagnostics_tests amd64_only_windows_tests --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'CI test target build failed' }
+          ctest --test-dir build -R '^(guest_system_configuration|guest_condition_variable|guest_signals|guest_wide_strings|guest_allocated_formatting|guest_scanning|guest_file_scanning|guest_collation|strict_nid_filter|amd64_only_converter|windows_dependency_diagnostics|amd64_only_windows|optional_plt|empty_tls|tls_function_coverage|linux_load_alignment|windows_gui)$' --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'CI tests failed' }
 
       - name: Verify patched libc wide conversion exports
         shell: pwsh
