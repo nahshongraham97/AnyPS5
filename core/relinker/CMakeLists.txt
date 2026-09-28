@@ -109,6 +109,26 @@ endif()
 
 
 if(BUILD_TESTING)
+    add_executable(windows_elf_import_resolution_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/tests/WindowsElfImportResolutionTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsEntryStubBuilder.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsGuestStartup.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsStubEmitter.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsDependencyStubBuilder.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsPeFormat.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/src/BufferUtils.cpp
+        ${CMAKE_SOURCE_DIR}/core/libs/nid/src/NidCompute.cpp
+        ${CMAKE_SOURCE_DIR}/core/libs/nid/src/Sha1.cpp
+    )
+    target_include_directories(windows_elf_import_resolution_tests PRIVATE
+        ${CMAKE_SOURCE_DIR}/core/libs/nid/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/codegen/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/domain/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/io/include
+    )
+    add_test(NAME windows_elf_import_resolution COMMAND windows_elf_import_resolution_tests)
+
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         add_executable(file_writer_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/io/tests/FileWriterTests.cpp
