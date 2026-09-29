@@ -13,10 +13,11 @@
       4. Deploys the patched PRX/SPRX libraries next to it.
       5. Launches the result with AnyPS5 (native), SharpEmu, and/or KytyPS5.
 
-    SharpEmu and KytyPS5 are separate projects. This script does not download
-    them; point the -SharpEmu / -Kyty switches at builds or release extracts you
-    already have. AnyPS5 itself needs no emulator: the relinker produces a native
-    Windows executable.
+    SharpEmu and KytyPS5 are separate projects with their own repos,
+    toolchains and build systems; this script only launches the binaries you
+    point -SharpEmu / -Kyty at. It never builds or patches them. Kyty tooling
+    lives in nahshongraham97/KytyPS5 (branch 'tools'), not here. AnyPS5 itself
+    needs no emulator: the relinker produces a native Windows executable.
 
 .PARAMETER Eboot
     Path to the guest file you want to run (eboot.bin or a converted .elf).
