@@ -5957,11 +5957,11 @@ private:
                 CaptureTrace::Log("flip frame=%llu submission=%llu offset=%zu batch=%llu unsignaled=%llu", static_cast<unsigned long long>(frameSerial), static_cast<unsigned long long>(submission.serial), cursor, static_cast<unsigned long long>(batchesAtFlip), static_cast<unsigned long long>(unsignaledAtFlip));
                 submission.flips.at(cursor)->GpuReady(frame);
             } else if (opcode == 0x15) {
-                timed(&WorkerProfile::dispatchMs, [&] { tolerate("dispatch", [&] { dispatch(queue, packet, submission); }); });
+                timed(&WorkerProfile::dispatchMs, [&] { dispatch(queue, packet, submission); });
                 Graphics::Recorder::CountRecordedWork();
                 finishDispatchPacket(false);
             } else if (opcode == 0x16) {
-                timed(&WorkerProfile::dispatchMs, [&] { tolerate("indirect dispatch", [&] { dispatchIndirect(queue, packet, submission); }); });
+                timed(&WorkerProfile::dispatchMs, [&] { dispatchIndirect(queue, packet, submission); });
                 Graphics::Recorder::CountRecordedWork();
                 finishDispatchPacket(true);
             } else if (opcode == 0x3c || opcode == 0x93) {
@@ -6166,15 +6166,8 @@ private:
             submission = Submission{};
         } catch (...) {
             const auto error = std::current_exception();
-            try {
-                std::rethrow_exception(error);
-            } catch (const std::exception& reason) {
-                std::fprintf(stderr, "[gpu] worker failed: %s\n", reason.what());
-            } catch (...) {
-                std::fprintf(stderr, "[gpu] worker failed with a non-standard exception\n");
-            }
-            std::fflush(stderr);
-            std::terminate();
+            ReportFailure(error);
+            for (const auto& [offset, flip] : submission.flips) flip->Fail(error);
         }
     }
 };
