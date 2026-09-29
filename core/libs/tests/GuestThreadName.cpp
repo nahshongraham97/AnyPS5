@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <cwchar>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -21,8 +22,8 @@ static void Require(bool condition) {
 }
 
 int main() {
-    // The host entry thread has no allocated guest PthreadPrivate yet.
-    Require(pthread_self_nid_postfix() == nullptr);
+    // Every thread adopts a guest PthreadPrivate, including the host entry thread.
+    Require(pthread_self_nid_postfix() != nullptr);
     pthread_set_name_np_nid_postfix(nullptr, "crispy-doom");
 #ifdef _WIN32
     PWSTR description = nullptr;
