@@ -243,6 +243,11 @@ if(BUILD_TESTING)
     add_executable(guest_kernel_model_tests tests/GuestKernelModel.cpp
             prx/libkernel/HostRuntime/GuestKernelModel.cpp)
     target_include_directories(guest_kernel_model_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(MINGW)
+        # This target links no PRX, so -fno-asynchronous-unwind-tables leaves the
+        # C++ exception runtime unresolved when the test uses try/catch.
+        target_compile_options(guest_kernel_model_tests PRIVATE -fasynchronous-unwind-tables)
+    endif()
     add_test(NAME guest_kernel_model COMMAND guest_kernel_model_tests)
     add_executable(guest_foreground_user_tests tests/GuestForegroundUser.cpp)
     target_include_directories(guest_foreground_user_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
