@@ -63,6 +63,11 @@
 .PARAMETER Force
     Remove an existing payload directory before staging.
 
+.PARAMETER KytyValidation
+    Pass --vulkan-validation true to KytyPS5. Off by default: Kyty treats every
+    Vulkan validation error as fatal, so it aborts on benign swapchain issues.
+    Turn this on only when debugging graphics.
+
 .PARAMETER CopyGameData
     Copy the game's other files (sce_sys, data folders, ...) into the payload's
     app0 folder, mirroring the console layout. The native AnyPS5 executable
@@ -94,6 +99,7 @@ param(
     [switch]$SkipSceModule,
     [switch]$Diagnostics,
     [switch]$Force,
+    [switch]$KytyValidation,
     [bool]$CopyGameData = $true
 )
 
@@ -297,8 +303,12 @@ function Start-SharpEmu {
 function Start-Kyty {
     if (-not (Test-Path -LiteralPath $Kyty -PathType Leaf)) { throw "KytyPS5 not found: $Kyty" }
     Write-Step "Running with KytyPS5"
-    # The parent folder of the file becomes /app0.
-    & $Kyty --game (Split-Path -Parent $Eboot)
+    # Kyty loads the game itself; the parent folder of the file becomes /app0.
+    # Validation is off by default: Kyty treats any Vulkan validation error as
+    # fatal, so leaving it on aborts on benign semaphore/swapchain issues.
+    $arguments = @('--game', (Split-Path -Parent $Eboot))
+    if (-not $KytyValidation) { $arguments += @('--vulkan-validation', 'false') }
+    & $Kyty @arguments
 }
 
 switch ($Backend) {
