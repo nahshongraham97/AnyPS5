@@ -4,6 +4,8 @@ add_executable(relinker
         ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/CliArgs.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/Autorun.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/InputDetector.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/PackageStaging.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/linux/LinuxElfPatcher.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/linux/LinuxGuestModuleWriter.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/src/windows/WindowsGuestModuleWriter.cpp
@@ -80,6 +82,24 @@ if(BUILD_TESTING)
     )
     target_include_directories(self_image_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include)
     add_test(NAME self_image COMMAND self_image_tests)
+
+    add_executable(input_detector_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/tests/InputDetectorTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/InputDetector.cpp
+    )
+    target_include_directories(input_detector_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cli/include)
+    add_test(NAME input_detector COMMAND input_detector_tests)
+
+    add_executable(package_staging_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/tests/PackageStagingTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/PackageStaging.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/src/InputDetector.cpp
+    )
+    target_include_directories(package_staging_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/cli/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/domain/include
+    )
+    add_test(NAME package_staging COMMAND package_staging_tests)
 endif()
 
 if(WIN32)

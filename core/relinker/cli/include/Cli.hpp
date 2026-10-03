@@ -21,6 +21,10 @@ struct Args {
     std::string inputPath;
     std::string outputPath;
     std::string runPath = "$ORIGIN/libs";
+    std::string extractorCommand;
+    std::string passcode;
+    std::string imageKey;
+    std::string stagingDir;
     std::set<std::string> excludedSceModules;
 };
 

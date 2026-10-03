@@ -43,6 +43,22 @@ Args ParseArgs(int argc, char* argv[]) {
             args.windowsDiagnostics = true;
         } else if (arg == "--windows-gui") {
             args.windowsGui = true;
+        } else if (arg == "--extractor") {
+            if (i + 1 >= argc)
+                throw std::runtime_error("--extractor requires a command value");
+            args.extractorCommand = argv[++i];
+        } else if (arg == "--passcode") {
+            if (i + 1 >= argc)
+                throw std::runtime_error("--passcode requires a passcode value");
+            args.passcode = argv[++i];
+        } else if (arg == "--image-key") {
+            if (i + 1 >= argc)
+                throw std::runtime_error("--image-key requires a key value");
+            args.imageKey = argv[++i];
+        } else if (arg == "--staging-dir") {
+            if (i + 1 >= argc)
+                throw std::runtime_error("--staging-dir requires a directory path");
+            args.stagingDir = argv[++i];
         } else if (arg.rfind("--", 0) == 0 || arg == "unused-filter") {
             throw std::runtime_error("unknown option: " + arg);
         } else if (args.inputPath.empty()) {
@@ -65,8 +81,9 @@ Args ParseArgs(int argc, char* argv[]) {
 
     if (args.inputPath.empty() || args.outputPath.empty())
         throw std::runtime_error(
-            "Usage: relinker [--windows] [--windows-diagnostics] [--windows-gui] [--skip-syscall-check] [--skip-sce-module] [--exclude-sce-module <file>]... [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] <input.elf|eboot.bin> <output.elf|output.exe>\n"
-            "Supports raw ELF and plaintext, uncompressed SELF. Encrypted images require a decrypted ELF."
+            "Usage: relinker [--windows] [--windows-diagnostics] [--windows-gui] [--skip-syscall-check] [--skip-sce-module] [--exclude-sce-module <file>]... [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] [--extractor <cmd>] [--passcode <pass>] [--image-key <key>] [--staging-dir <dir>] <input.elf|eboot.bin|app_dir|package.pkg> <output.elf|output.exe>\n"
+            "Supports raw ELF, plaintext PS4/PS5 SELF, extracted app directories, and staged PS4/PS5 PKG/fPKG containers.\n"
+            "Protected retail content requires lawfully supplied decryption material (--image-key)."
         );
 
     return args;

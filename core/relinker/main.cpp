@@ -1,4 +1,6 @@
 #include <Cli.hpp>
+#include <InputDetector.hpp>
+#include <PackageStaging.hpp>
 #include <domain/Types.hpp>
 #include <io/FileReader.hpp>
 #include <io/FileWriter.hpp>
@@ -42,9 +44,49 @@ int main(const int argc, char* argv[]) {
         if (!args.toWindows && extension == ".exe") std::cerr << "WARNING: Output filename ends with .exe, but --windows was not specified. The output will be a Linux ELF executable.\n";
         Io::FileReader fileReader;
         Io::FileWriter fileWriter;
-
-        auto sourceBytes = Relinker::UnwrapSelf(fileReader.Read(args.inputPath));
         const std::string absPath = std::filesystem::absolute(args.outputPath).string();
+        const auto inputFsPath = std::filesystem::path(args.inputPath);
+        const auto detection = Relinker::InputDetector::Detect(inputFsPath);
+        std::cout << "Input detection: " << detection.DiagnosticMessage << '\n';
+
+        std::filesystem::path resolvedExecutable;
+        std::filesystem::path stagingApp0;
+
+        if (detection.Format == Relinker::InputFormat::PackageContainer) {
+            Relinker::PackageStagingOptions stagingOpts;
+            stagingOpts.PackagePath = inputFsPath;
+            stagingOpts.OutputDirectory = std::filesystem::path(absPath).parent_path();
+            stagingOpts.StagingDirectory = args.stagingDir;
+            stagingOpts.ExtractorCommand = args.extractorCommand;
+            stagingOpts.Passcode = args.passcode;
+            stagingOpts.ImageKey = args.imageKey;
+
+            auto staged = Relinker::PackageStaging::StagePackage(stagingOpts, detection);
+            resolvedExecutable = staged.EbootPath;
+            stagingApp0 = staged.App0Directory;
+            std::cout << "Staged package content: " << staged.ResourceFilesCount << " resources staged to " << stagingApp0.string() << '\n';
+        } else if (detection.Format == Relinker::InputFormat::ExtractedDirectory) {
+            auto staged = Relinker::PackageStaging::StageExtractedApp(inputFsPath, std::filesystem::path(absPath).parent_path());
+            resolvedExecutable = staged.EbootPath;
+            stagingApp0 = staged.App0Directory;
+            std::cout << "Staged extracted application: " << staged.ResourceFilesCount << " resources staged to " << stagingApp0.string() << '\n';
+        } else if (detection.Format == Relinker::InputFormat::RawElf64 ||
+                   detection.Format == Relinker::InputFormat::Ps4Self ||
+                   detection.Format == Relinker::InputFormat::Ps5Self) {
+            resolvedExecutable = detection.ResolvedExecutablePath;
+            if (detection.IsEncryptedOrProtected) {
+                throw Domain::RelinkerException(detection.DiagnosticMessage);
+            }
+            const auto parentDir = resolvedExecutable.parent_path();
+            if (std::filesystem::exists(parentDir / "sce_sys") || std::filesystem::exists(parentDir / "sce_module") || std::filesystem::exists(parentDir / "sce_modules")) {
+                auto staged = Relinker::PackageStaging::StageExtractedApp(parentDir, std::filesystem::path(absPath).parent_path());
+                stagingApp0 = staged.App0Directory;
+            }
+        } else {
+            throw Domain::RelinkerException(detection.DiagnosticMessage.empty() ? "Unrecognized input format" : detection.DiagnosticMessage);
+        }
+
+        auto sourceBytes = Relinker::UnwrapSelf(fileReader.Read(resolvedExecutable.string()));
 
         std::vector<Codegen::TrampolineSite> trampolines;
         if (args.toIntel) {
@@ -82,7 +124,7 @@ int main(const int argc, char* argv[]) {
 
         std::vector<Relinker::GuestArtifact> guestArtifacts;
         if (!args.skipSceModule) {
-            guestArtifacts = Relinker::GuestModuleBuilder().Build(args.inputPath, absPath, result.DynamicSection, args.toWindows, args.toIntel, *syscallScanner, args.lazyBinding, args.runPath, args.excludedSceModules);
+            guestArtifacts = Relinker::GuestModuleBuilder().Build(resolvedExecutable, absPath, result.DynamicSection, args.toWindows, args.toIntel, *syscallScanner, args.lazyBinding, args.runPath, args.excludedSceModules);
         }
 
         if (args.writeRegistry) {

@@ -1,4 +1,5 @@
 #include <relinker/guest/GuestImage.hpp>
+#include <relinker/parsing/SelfImage.hpp>
 #include <elfpatcher/general/GuestModuleWriter.hpp>
 #include <codegen/IAmd64OnlyConverter.hpp>
 #include <io/FileReader.hpp>
@@ -13,8 +14,12 @@ namespace Relinker {
 
 std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path& inputPath, const std::filesystem::path& outputPath, Domain::SysVDynamicSection& dynamic, const bool windows, const bool toIntel, ISyscallScanner& syscallScanner, const bool lazyBinding, const std::string& runPath, const std::set<std::string>& excludedModules) const {
     const auto root = std::filesystem::absolute(inputPath).parent_path();
-    const auto singular = root / "sce_module";
-    const auto plural = root / "sce_modules";
+    auto singular = root / "sce_module";
+    auto plural = root / "sce_modules";
+    if (!std::filesystem::exists(singular) && !std::filesystem::exists(plural)) {
+        if (std::filesystem::exists(root / "app0" / "sce_module")) singular = root / "app0" / "sce_module";
+        else if (std::filesystem::exists(root / "app0" / "sce_modules")) plural = root / "app0" / "sce_modules";
+    }
     const bool hasSingular = std::filesystem::exists(singular);
     const bool hasPlural = std::filesystem::exists(plural);
     if (hasSingular && hasPlural) throw Domain::RelinkerException("Both sce_module and sce_modules exist beside the input executable");
@@ -32,7 +37,15 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         char magic[4]{};
         stream.read(magic, 4);
         if (stream.bad()) throw Domain::RelinkerException("Cannot read guest candidate magic: " + entry.path().string());
-        if (stream.gcount() == 4 && static_cast<unsigned char>(magic[0]) == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') paths.push_back(entry.path());
+        if (stream.gcount() == 4) {
+            const std::uint32_t magicVal = static_cast<std::uint32_t>(static_cast<unsigned char>(magic[0])) |
+                (static_cast<std::uint32_t>(static_cast<unsigned char>(magic[1])) << 8) |
+                (static_cast<std::uint32_t>(static_cast<unsigned char>(magic[2])) << 16) |
+                (static_cast<std::uint32_t>(static_cast<unsigned char>(magic[3])) << 24);
+            const bool isElf = (static_cast<unsigned char>(magic[0]) == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F');
+            const bool isSelf = (magicVal == 0x1d3d154f || magicVal == 0xeef51454);
+            if (isElf || isSelf) paths.push_back(entry.path());
+        }
     }
     if (!unmatchedExclusions.empty()) throw Domain::RelinkerException("Excluded sce_module file not found: " + *unmatchedExclusions.begin());
     std::sort(paths.begin(), paths.end());
@@ -43,7 +56,14 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     std::set<std::string> outputNames;
     Io::FileReader reader;
     for (const auto& path : paths) {
-        auto image = GuestImageReader().Read(path, reader.Read(path.string()));
+        auto rawBytes = reader.Read(path.string());
+        std::vector<std::uint8_t> elfBytes;
+        try {
+            elfBytes = Relinker::UnwrapSelf(std::move(rawBytes));
+        } catch (const std::exception& e) {
+            throw Domain::RelinkerException("Guest module '" + path.filename().string() + "' cannot be unwrapped: " + e.what());
+        }
+        auto image = GuestImageReader().Read(path, std::move(elfBytes));
         if (image.OutputName.find_first_of("$\r\n") != std::string::npos) throw Domain::RelinkerException("Unsupported guest filename: " + image.OutputName);
         std::string folded = image.OutputName;
         if (windows) {
