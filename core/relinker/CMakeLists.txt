@@ -40,6 +40,7 @@ add_executable(relinker
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen/src/x86/Sse4aOperands.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen/src/x86/Sse4aLowering.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/parsing/ElfReader.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/parsing/SelfImage.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/SyscallScanner.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/CallSiteResolver.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/CodeInstructionCollector.cpp
@@ -66,6 +67,15 @@ target_include_directories(relinker PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen/include
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include
 )
+
+if(BUILD_TESTING)
+    add_executable(self_image_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/relinker/tests/SelfImageTests.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/parsing/SelfImage.cpp
+    )
+    target_include_directories(self_image_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/relinker/include)
+    add_test(NAME self_image COMMAND self_image_tests)
+endif()
 
 if(WIN32)
     add_executable(windows_dependency_diagnostics_tests EXCLUDE_FROM_ALL
