@@ -7,10 +7,10 @@ import tempfile
 def main():
     relinker = Path(sys.argv[1]).resolve()
     cases = [
-        ("tiny", bytes(10), "File too small for ELF header"),
+        ("tiny", bytes(10), "Input is neither a raw ELF nor a recognized SELF image"),
         ("truncated", b"\x7fELF\x02\x01\x01" + bytes(25), "File too small for ELF header"),
         ("header-only", b"\x7fELF\x02\x01\x01" + bytes(57), "No PT_DYNAMIC segment found"),
-        ("bad-magic", bytes(64), "Invalid ELF magic number"),
+        ("bad-magic", bytes(64), "Input is neither a raw ELF nor a recognized SELF image"),
     ]
     with tempfile.TemporaryDirectory(prefix="anyps5-elf-header-") as directory:
         for name, data, error in cases:
