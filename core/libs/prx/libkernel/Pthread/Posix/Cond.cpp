@@ -21,11 +21,6 @@ int toPosix(int result) {
 
 extern "C" {
 
-int APS5_VABI pthread_cond_destroy_nid_postfix(PthreadCond* cond) {
-    if (!cond) return PosixThread::GUEST_EINVAL;
-    return toPosix(scePthreadCondDestroy(cond));
-}
-
 int APS5_VABI pthread_cond_broadcast_nid_postfix(PthreadCond* cond) {
     if (!cond || !*cond) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondBroadcast(cond));
