@@ -11,6 +11,7 @@ extern "C" {
 Handler APS5_VABI signal_nid_postfix(int, Handler);
 int APS5_VABI sigaction_nid_postfix(int, const GuestSignalAction*, GuestSignalAction*);
 int APS5_VABI raise_nid_postfix(int);
+int APS5_VABI sigprocmask_nid_postfix(int, const void*, void*);
 int* APS5_VABI __error_nid_postfix();
 }
 volatile std::sig_atomic_t received = 0;
@@ -47,4 +48,13 @@ int main() {
     action.mask.bits[0] = 0;
     action.handler = nullptr;
     Require(sigaction_nid_postfix(15, &action, &previous) == 0 && previous.handler == Callback);
+    GuestSignalSet blocked{{0x20, 0, 0, 0}};
+    GuestSignalSet previousMask{{}};
+    Require(sigprocmask_nid_postfix(3, &blocked, &previousMask) == 0);
+    Require(previousMask.bits[0] == 0);
+    Require(sigprocmask_nid_postfix(1, nullptr, &previousMask) == 0);
+    Require(previousMask.bits[0] == 0x20);
+    Require(sigprocmask_nid_postfix(2, &blocked, nullptr) == 0);
+    Require(sigprocmask_nid_postfix(1, nullptr, &previousMask) == 0);
+    Require(previousMask.bits[0] == 0);
 }

@@ -65,4 +65,13 @@ int APS5_VABI sceNpCommerceDialogTerminate() {
  return 0;
 }
 
+int APS5_VABI sceNpCommerceHidePsStoreIcon(void) {
+ return 0;
+}
+
+int APS5_VABI sceNpCommerceShowPsStoreIcon(int pos) {
+ (void)pos;
+ return 0;
+}
+
 }

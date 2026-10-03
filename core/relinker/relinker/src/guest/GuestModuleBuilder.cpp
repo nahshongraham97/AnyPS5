@@ -11,7 +11,7 @@
 
 namespace Relinker {
 
-std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path& inputPath, const std::filesystem::path& outputPath, Domain::SysVDynamicSection& dynamic, const bool windows, const bool toIntel, ISyscallScanner& syscallScanner, const bool lazyBinding, const std::string& runPath) const {
+std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path& inputPath, const std::filesystem::path& outputPath, Domain::SysVDynamicSection& dynamic, const bool windows, const bool toIntel, ISyscallScanner& syscallScanner, const bool lazyBinding, const std::string& runPath, const std::set<std::string>& excludedModules) const {
     const auto root = std::filesystem::absolute(inputPath).parent_path();
     const auto singular = root / "sce_module";
     const auto plural = root / "sce_modules";
@@ -22,8 +22,10 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     const auto directory = hasSingular ? singular : plural;
     if (!std::filesystem::is_directory(directory)) throw Domain::RelinkerException("Guest module path is not a directory: " + directory.string());
     std::vector<std::filesystem::path> paths;
+    std::set<std::string> unmatchedExclusions = excludedModules;
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
         if (entry.path().filename().string().ends_with(GuestModuleSuffix)) continue;
+        if (unmatchedExclusions.erase(entry.path().filename().string()) != 0) continue;
         if (!entry.is_regular_file()) continue;
         std::ifstream stream(entry.path(), std::ios::binary);
         if (!stream) throw Domain::RelinkerException("Cannot read guest candidate: " + entry.path().string());
@@ -32,6 +34,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         if (stream.bad()) throw Domain::RelinkerException("Cannot read guest candidate magic: " + entry.path().string());
         if (stream.gcount() == 4 && static_cast<unsigned char>(magic[0]) == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') paths.push_back(entry.path());
     }
+    if (!unmatchedExclusions.empty()) throw Domain::RelinkerException("Excluded sce_module file not found: " + *unmatchedExclusions.begin());
     std::sort(paths.begin(), paths.end());
     if (paths.empty()) return {};
     if (lazyBinding) throw Domain::RelinkerException("Guest modules require eager binding; --lazy-binding is incompatible");
@@ -59,7 +62,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         for (const auto& header : image.Headers) if (header.Type == 1 && (header.Flags & 1) != 0) codeHeaders.push_back(header);
         if (toIntel) {
             auto converted = Codegen::MakeAmd64OnlyConverter()->Convert(std::move(image.Bytes), codeHeaders);
-            if (!converted.Trampolines.empty()) throw Domain::RelinkerException("--to-intel needs " + std::to_string(converted.Trampolines.size()) + " stub(s) in guest module " + path.string() + "; stub sections are not written for guest modules");
+            image.Trampolines = std::move(converted.Trampolines);
             image.Bytes = std::move(converted.Bytes);
         }
         for (const auto& header : codeHeaders) {
@@ -68,9 +71,21 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         }
         images.push_back(std::move(image));
     }
+    std::map<std::string, std::size_t> guestNames;
+    for (std::size_t index = 0; index < images.size(); ++index) {
+        for (const auto& name : {images[index].SourcePath.filename().string(), images[index].Soname}) {
+            if (name.empty()) continue;
+            const auto [found, inserted] = guestNames.emplace(name, index);
+            if (!inserted && found->second != index) throw Domain::RelinkerException("Ambiguous guest dependency name: " + name);
+        }
+    }
     std::vector<std::set<std::size_t>> dependencies(images.size());
     for (auto& image : images) image.UsePlatformTlsResolver = !exports.contains("vNe1w4diLCs");
     for (std::size_t index = 0; index < images.size(); ++index) {
+        for (const auto& name : images[index].Dependencies) {
+            const auto found = guestNames.find(name);
+            if (found != guestNames.end() && found->second != index) dependencies[index].insert(found->second);
+        }
         for (const auto& symbol : images[index].Symbols) {
             if (symbol.Section != 0 || symbol.Name.empty()) continue;
             const auto found = exports.find(symbol.Name);
@@ -96,6 +111,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     std::vector<std::string> hostLibraries;
     std::set<std::string> uniqueHosts;
     const auto addHost = [&](const std::string& name) {
+        if (guestNames.contains(name)) return;
         if (name.empty() || name.find_first_of("/\\:$") != std::string::npos) throw Domain::RelinkerException("Invalid host dependency: " + name);
         if (uniqueHosts.insert(name).second) hostLibraries.push_back(name);
     };

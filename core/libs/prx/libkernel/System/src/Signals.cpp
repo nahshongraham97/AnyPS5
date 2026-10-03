@@ -194,6 +194,8 @@ int APS5_VABI _sigprocmask_nid_postfix(int how, const GuestSignalSet* set, Guest
     }
     return 0;
 }
+
+
 }
 
 extern "C" {

@@ -24,8 +24,7 @@ int APS5_VABI sceSystemServiceLoadExec(const char* path, const char* const* argu
 }
 
 int APS5_VABI sceSystemServiceDisableNoticeScreenSkipFlagAutoSet(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ return SYSTEM_SERVICE_OK;
 }
 
 int APS5_VABI sceSystemServiceGetDisplaySafeAreaInfo(SystemServiceDisplaySafeAreaInfo* info) {
@@ -38,9 +37,14 @@ int APS5_VABI sceSystemServiceGetDisplaySafeAreaInfo(SystemServiceDisplaySafeAre
 }
 
 int APS5_VABI sceSystemServiceGetHdrToneMapLuminance(SystemServiceHdrToneMapLuminance* luminance) {
- (void)luminance;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ if (luminance == nullptr) {
+  return SYSTEM_SERVICE_ERROR_PARAMETER;
+ }
+ constexpr float SdrReferenceWhiteNits = 100.0f;
+ luminance->max_full_frame_tone_map_luminance = SdrReferenceWhiteNits;
+ luminance->max_tone_map_luminance = SdrReferenceWhiteNits;
+ luminance->min_tone_map_luminance = 0.0f;
+ return SYSTEM_SERVICE_OK;
 }
 
 int APS5_VABI sceSystemServiceGetNoticeScreenSkipFlag(bool* value) {
@@ -107,8 +111,17 @@ int APS5_VABI sceSystemServiceReportAbnormalTermination(const void* info) {
 }
 
 int APS5_VABI sceSystemServiceSetNoticeScreenSkipFlag(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ return SYSTEM_SERVICE_OK;
+}
+
+int APS5_VABI sceSystemServiceInitializePlayerDialogParam(void* param) {
+ if (param == nullptr) return SYSTEM_SERVICE_ERROR_PARAMETER;
+ return SYSTEM_SERVICE_OK;
+}
+
+int APS5_VABI sceSystemServiceLaunchPlayerDialog(const void* param) {
+ if (param == nullptr) return SYSTEM_SERVICE_ERROR_PARAMETER;
+ return SYSTEM_SERVICE_OK;
 }
 
 int APS5_VABI sceSystemServiceLaunchWebBrowser(const char* url, void* reserved) {
