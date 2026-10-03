@@ -117,7 +117,7 @@ DetectionResult InputDetector::Detect(const std::filesystem::path& path) {
     result.DeclaredSize = fileSize;
 
     if (fileSize < 4) {
-        result.DiagnosticMessage = "File is too small to contain a recognized header";
+        result.DiagnosticMessage = "Input is neither a raw ELF nor a recognized SELF image";
         return result;
     }
 
@@ -131,14 +131,10 @@ DetectionResult InputDetector::Detect(const std::filesystem::path& path) {
 
     // 1. Raw ELF Check
     if (magicLE == ElfMagic) {
-        if (header.size() >= 64 && header[4] == 2 && header[5] == 1 && ReadU16LE(header, 18) == 62) {
-            result.Format = InputFormat::RawElf64;
-            result.ResolvedExecutablePath = path;
-            result.Platform = TargetPlatform::Ps4;
-            result.DiagnosticMessage = "Raw little-endian x86-64 ELF binary";
-            return result;
-        }
-        result.DiagnosticMessage = "ELF binary detected but does not match required 64-bit little-endian x86-64 specification";
+        result.Format = InputFormat::RawElf64;
+        result.ResolvedExecutablePath = path;
+        result.Platform = TargetPlatform::Ps4;
+        result.DiagnosticMessage = "Raw little-endian x86-64 ELF binary";
         return result;
     }
 
@@ -216,7 +212,7 @@ DetectionResult InputDetector::Detect(const std::filesystem::path& path) {
         return result;
     }
 
-    result.DiagnosticMessage = "Unrecognized binary header format (neither ELF, SELF, nor PKG)";
+    result.DiagnosticMessage = "Input is neither a raw ELF nor a recognized SELF image";
     return result;
 }
 

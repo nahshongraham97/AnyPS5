@@ -79,30 +79,48 @@ StagedPackageResult PackageStaging::StagePackage(const PackageStagingOptions& op
     return StageExtractedApp(stagingRoot, options.OutputDirectory);
 }
 
-StagedPackageResult PackageStaging::StageExtractedApp(const std::filesystem::path& appDir, const std::filesystem::path& outputDir) {
+StagedPackageResult PackageStaging::StageExtractedApp(const std::filesystem::path& appDir, const std::filesystem::path& outputDir, const std::filesystem::path& preferredExecutable) {
     if (!std::filesystem::exists(appDir)) {
         throw Domain::RelinkerException("Application directory does not exist: " + appDir.string());
     }
 
-    const std::filesystem::path ebootCandidates[] = {
-        appDir / "app0" / "eboot.bin",
-        appDir / "eboot.bin",
-        appDir / "app" / "eboot.bin"
-    };
-
     std::filesystem::path sourceEboot;
     std::filesystem::path sourceAppRoot;
 
-    for (const auto& candidate : ebootCandidates) {
-        if (std::filesystem::exists(candidate) && std::filesystem::is_regular_file(candidate)) {
-            sourceEboot = candidate;
-            sourceAppRoot = candidate.parent_path();
-            break;
+    if (!preferredExecutable.empty() && std::filesystem::exists(preferredExecutable)) {
+        sourceEboot = preferredExecutable;
+        sourceAppRoot = preferredExecutable.parent_path();
+    } else {
+        const std::filesystem::path ebootCandidates[] = {
+            appDir / "app0" / "eboot.bin",
+            appDir / "eboot.bin",
+            appDir / "app" / "eboot.bin"
+        };
+
+        for (const auto& candidate : ebootCandidates) {
+            if (std::filesystem::exists(candidate) && std::filesystem::is_regular_file(candidate)) {
+                sourceEboot = candidate;
+                sourceAppRoot = candidate.parent_path();
+                break;
+            }
         }
     }
 
     if (sourceEboot.empty()) {
-        throw Domain::RelinkerException("Application directory does not contain eboot.bin or app0/eboot.bin: " + appDir.string());
+        for (const auto& entry : std::filesystem::directory_iterator(appDir)) {
+            if (entry.is_regular_file()) {
+                const auto ext = entry.path().extension().string();
+                if (ext == ".elf" || ext == ".bin") {
+                    sourceEboot = entry.path();
+                    sourceAppRoot = appDir;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (sourceEboot.empty()) {
+        throw Domain::RelinkerException("Application directory does not contain eboot.bin, app0/eboot.bin, or an executable ELF: " + appDir.string());
     }
 
     StagedPackageResult result;

@@ -78,8 +78,8 @@ int main(const int argc, char* argv[]) {
                 throw Domain::RelinkerException(detection.DiagnosticMessage);
             }
             const auto parentDir = resolvedExecutable.parent_path();
-            if (std::filesystem::exists(parentDir / "sce_sys") || std::filesystem::exists(parentDir / "sce_module") || std::filesystem::exists(parentDir / "sce_modules")) {
-                auto staged = Relinker::PackageStaging::StageExtractedApp(parentDir, std::filesystem::path(absPath).parent_path());
+            if (std::filesystem::exists(parentDir / "sce_sys")) {
+                auto staged = Relinker::PackageStaging::StageExtractedApp(parentDir, std::filesystem::path(absPath).parent_path(), resolvedExecutable);
                 stagingApp0 = staged.App0Directory;
             }
         } else {

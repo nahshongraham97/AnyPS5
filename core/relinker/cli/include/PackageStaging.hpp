@@ -30,7 +30,7 @@ struct StagedPackageResult {
 class PackageStaging {
 public:
     static StagedPackageResult StagePackage(const PackageStagingOptions& options, const DetectionResult& detection);
-    static StagedPackageResult StageExtractedApp(const std::filesystem::path& appDir, const std::filesystem::path& outputDir);
+    static StagedPackageResult StageExtractedApp(const std::filesystem::path& appDir, const std::filesystem::path& outputDir, const std::filesystem::path& preferredExecutable = {});
 };
 
 } // namespace Relinker
