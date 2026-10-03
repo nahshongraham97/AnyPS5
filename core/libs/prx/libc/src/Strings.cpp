@@ -415,18 +415,6 @@ unsigned long long APS5_VABI wcstoull_nid_postfix(const wchar_t* str, wchar_t** 
     return std::wcstoull(str, endptr, base);
 }
 
-int APS5_VABI wcscoll_nid_postfix(const wchar_t* first, const wchar_t* second) {
-    return std::wcscoll(first, second);
-}
-
-size_t APS5_VABI wcsxfrm_nid_postfix(wchar_t* destination, const wchar_t* source, size_t count) {
-    return std::wcsxfrm(destination, source, count);
-}
-
-size_t APS5_VABI strxfrm_nid_postfix(char* destination, const char* source, size_t count) {
-    return std::strxfrm(destination, source, count);
-}
-
 size_t APS5_VABI wcsrtombs_nid_postfix(char* destination, const wchar_t** source, size_t count, mbstate_t* state) {
     return std::wcsrtombs(destination, source, count, state);
 }
