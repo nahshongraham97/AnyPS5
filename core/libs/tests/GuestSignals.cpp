@@ -14,9 +14,6 @@ int APS5_VABI raise_nid_postfix(int);
 int APS5_VABI sigprocmask_nid_postfix(int, const void*, void*);
 int* APS5_VABI __error_nid_postfix();
 }
-struct GuestSignalSet {
-    std::uint32_t bits[4];
-};
 volatile std::sig_atomic_t received = 0;
 void APS5_VABI Callback(int value) { received = value; }
 static void Require(bool value) { if (!value) std::abort(); }
@@ -52,12 +49,12 @@ int main() {
     action.handler = nullptr;
     Require(sigaction_nid_postfix(15, &action, &previous) == 0 && previous.handler == Callback);
     GuestSignalSet blocked{{0x20, 0, 0, 0}};
-    GuestSignalSet previous{{}};
-    Require(sigprocmask_nid_postfix(3, &blocked, &previous) == 0);
-    Require(previous.bits[0] == 0);
-    Require(sigprocmask_nid_postfix(1, nullptr, &previous) == 0);
-    Require(previous.bits[0] == 0x20);
+    GuestSignalSet previousMask{{}};
+    Require(sigprocmask_nid_postfix(3, &blocked, &previousMask) == 0);
+    Require(previousMask.bits[0] == 0);
+    Require(sigprocmask_nid_postfix(1, nullptr, &previousMask) == 0);
+    Require(previousMask.bits[0] == 0x20);
     Require(sigprocmask_nid_postfix(2, &blocked, nullptr) == 0);
-    Require(sigprocmask_nid_postfix(1, nullptr, &previous) == 0);
-    Require(previous.bits[0] == 0);
+    Require(sigprocmask_nid_postfix(1, nullptr, &previousMask) == 0);
+    Require(previousMask.bits[0] == 0);
 }
