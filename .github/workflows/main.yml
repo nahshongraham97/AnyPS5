@@ -9,6 +9,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      SSL_CERT_FILE: C:\\Program Files\\Git\\mingw64\\etc\\ssl\\certs\\ca-bundle.crt
 
     steps:
       - name: Checkout Repository
