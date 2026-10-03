@@ -32,8 +32,9 @@ cmake --build build --target relinker libs --parallel
 
 ## Known constraints
 
-- `relinker` requires a raw ELF (`7F 45 4C 46`). Retail SELF-wrapped `eboot.bin`
-  is rejected with `Invalid ELF magic number`; there is no SELF/decrypt support.
+- `relinker` accepts raw ELF (`7F 45 4C 46`) and reconstructs SELF images only when
+  required segments are plaintext and uncompressed. Encrypted or compressed
+  segments require a decrypted ELF or an explicitly implemented decoder.
 - Relinked executables need `libs\` and `app0\` as siblings at runtime.
 - KytyPS5 aborts the process on *any* Vulkan validation error, so run it with
   `--vulkan-validation false` unless debugging graphics.
