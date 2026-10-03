@@ -45,7 +45,7 @@ std::uint32_t available(const CommandBuffer& buffer, const char* function) {
     Require(bottom <= up && up <= down && down <= top, function, "invalid command buffer cursors");
     Require(bottom != 0 || top == 0, function, "null command buffer storage");
     const auto count = (down - up) / sizeof(std::uint32_t);
-    Require(count >= buffer.reserved_dw, function, "reserved space exceeds command buffer capacity");
+    if (count <= buffer.reserved_dw) return 0;
     Require(count - buffer.reserved_dw <= std::numeric_limits<std::uint32_t>::max(), function, "command buffer capacity overflow");
     return static_cast<std::uint32_t>(count - buffer.reserved_dw);
 }
@@ -157,6 +157,13 @@ void PatchIndirectCount(std::uint32_t* packet, std::uint32_t opcode, std::uint32
     ValidatePacket(packet, opcode, 5, function);
     Require(packet[3] == 0x80000000u && packet[4] <= 0x3fffu && count <= 0x3fffu - packet[4], function, "indirect register count overflow or invalid packet");
     packet[4] += count;
+}
+
+void SetIndirectCount(std::uint32_t* packet, std::uint32_t opcode, std::uint32_t count, const char* function) {
+    ValidatePacket(packet, opcode, 5, function);
+    Require(packet[3] == 0x80000000u && packet[4] <= 0x3fffu, function, "invalid indirect register packet");
+    CheckBits(count, 0x3fffu, function);
+    packet[4] = count;
 }
 
 }

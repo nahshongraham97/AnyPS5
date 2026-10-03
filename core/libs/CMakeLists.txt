@@ -36,10 +36,6 @@ endfunction()
 
 set(LIBC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/prx/libc)
 add_library(libc SHARED EXCLUDE_FROM_ALL)
-# libkernel and other PRX targets call libc's host-side helper functions.
-# On Windows, an import library only contains exported symbols. Make the
-# existing implementations visible rather than duplicating them in libkernel.
-set_target_properties(libc PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 set(LIBS_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 add_subdirectory(${LIBC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/prx/libc)
 target_include_directories(libc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -47,12 +43,14 @@ configure_windows_unwind(libc)
 
 set(UNPATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/libs/unpatched)
 set(PATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/libs)
+set(IMPLIB_DIR ${PATCHED_DIR}/implib)
 
 set_target_properties(libc PROPERTIES
         PREFIX ""
         SUFFIX .prx
         RUNTIME_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
         LIBRARY_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
+        ARCHIVE_OUTPUT_DIRECTORY ${IMPLIB_DIR}
 )
 
 set(LIBC_UNPATCHED ${UNPATCHED_DIR}/libc.prx)
@@ -65,7 +63,6 @@ add_custom_command(
         DEPENDS nid_patcher libc ${LIBC_UNPATCHED}
         COMMENT "Patching NIDs for libc"
 )
-add_custom_target(patched_libc DEPENDS ${LIBC_PATCHED})
 
 file(GLOB LIBS_DIRS LIST_DIRECTORIES true ${CMAKE_CURRENT_SOURCE_DIR}/prx/*)
 list(REMOVE_ITEM LIBS_DIRS ${LIBC_DIR})
@@ -90,9 +87,12 @@ foreach(LIB_DIR ${LIBS_DIRS})
         else()
             target_link_libraries(${LIB_NAME} PRIVATE libkernel libc)
         endif()
-
-        if(WIN32 AND LIB_NAME STREQUAL "libSceSystemService")
-            target_link_libraries(${LIB_NAME} PRIVATE shell32)
+        if(WIN32 AND LIB_NAME STREQUAL "libSceNet")
+            target_link_libraries(${LIB_NAME} PRIVATE ws2_32)
+            target_compile_definitions(${LIB_NAME} PRIVATE _WIN32_WINNT=0x0602)
+        elseif(WIN32 AND LIB_NAME STREQUAL "libSceNetCtl")
+            target_link_libraries(${LIB_NAME} PRIVATE ws2_32 iphlpapi)
+            target_compile_definitions(${LIB_NAME} PRIVATE _WIN32_WINNT=0x0602)
         endif()
 
         set_target_properties(${LIB_NAME} PROPERTIES
@@ -100,6 +100,7 @@ foreach(LIB_DIR ${LIBS_DIRS})
                 SUFFIX .prx
                 RUNTIME_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
                 LIBRARY_OUTPUT_DIRECTORY ${UNPATCHED_DIR}
+                ARCHIVE_OUTPUT_DIRECTORY ${IMPLIB_DIR}
         )
 
         set(UNPATCHED_FILE ${UNPATCHED_DIR}/${LIB_NAME}.prx)
@@ -112,7 +113,6 @@ foreach(LIB_DIR ${LIBS_DIRS})
                 DEPENDS nid_patcher ${LIB_NAME} ${UNPATCHED_FILE} ${LIBC_UNPATCHED}
                 COMMENT "Patching NIDs for ${LIB_NAME}"
         )
-        add_custom_target(patched_${LIB_NAME} DEPENDS ${PATCHED_FILE})
 
         list(APPEND PATCHED_OUTPUTS ${PATCHED_FILE})
     endif()
@@ -258,16 +258,6 @@ if(BUILD_TESTING)
         set_tests_properties(guest_foreground_user PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
-    add_library(host_thread_local_test_library SHARED tests/HostThreadLocalLibrary.cpp)
-    target_include_directories(host_thread_local_test_library PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    add_executable(host_thread_local_tests tests/HostThreadLocal.cpp)
-    target_link_libraries(host_thread_local_tests PRIVATE host_thread_local_test_library)
-    if(MINGW)
-        target_compile_options(host_thread_local_test_library PRIVATE -fasynchronous-unwind-tables)
-        target_compile_options(host_thread_local_tests PRIVATE -fasynchronous-unwind-tables)
-    endif()
-    add_test(NAME host_thread_local COMMAND host_thread_local_tests)
-    set_tests_properties(host_thread_local PROPERTIES TIMEOUT 15)
     add_executable(texture_format_lookup_tests tests/TextureFormatLookup.cpp)
     target_include_directories(texture_format_lookup_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include)
     target_link_libraries(texture_format_lookup_tests PRIVATE libSceAgcDriver libc)
@@ -622,6 +612,69 @@ if(BUILD_TESTING)
     endif()
 endif()
 
+if(BUILD_TESTING)
+    add_test_executable(savedata_memory_growth_tests tests/SaveDataMemoryGrowth.cpp)
+    target_include_directories(savedata_memory_growth_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(savedata_memory_growth_tests PRIVATE libSceSaveData.native)
+    configure_windows_unwind(savedata_memory_growth_tests)
+    if(MINGW)
+        target_compile_options(savedata_memory_growth_tests PRIVATE -fasynchronous-unwind-tables)
+    endif()
+    add_test(NAME savedata_memory_growth COMMAND savedata_memory_growth_tests)
+    add_test(NAME savedata_memory_growth_read_failure COMMAND savedata_memory_growth_tests read-failure)
+    set_tests_properties(savedata_memory_growth_read_failure PROPERTIES SKIP_RETURN_CODE 77)
+    if(WIN32)
+        set_tests_properties(savedata_memory_growth savedata_memory_growth_read_failure PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceSaveData.native>")
+    endif()
+    add_library(host_thread_local_test_library SHARED tests/HostThreadLocalLibrary.cpp)
+    set_target_properties(host_thread_local_test_library PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<1:${ANYPS5_TEST_OUTPUT_DIRECTORY}>")
+    target_include_directories(host_thread_local_test_library PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test_executable(host_thread_local_tests tests/HostThreadLocal.cpp)
+    target_link_libraries(host_thread_local_tests PRIVATE host_thread_local_test_library)
+    if(MINGW)
+        target_compile_options(host_thread_local_test_library PRIVATE -fasynchronous-unwind-tables)
+        target_compile_options(host_thread_local_tests PRIVATE -fasynchronous-unwind-tables)
+    endif()
+    add_test(NAME host_thread_local COMMAND host_thread_local_tests)
+    set_tests_properties(host_thread_local PROPERTIES TIMEOUT 15)
+
+    add_test_executable(savedata_core_write_replacement_tests tests/SaveDataWriteReplacement.cpp)
+    target_include_directories(savedata_core_write_replacement_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(savedata_core_write_replacement_tests PRIVATE libSceSaveData)
+    configure_windows_unwind(savedata_core_write_replacement_tests)
+    add_test(NAME savedata_core_write_replacement COMMAND savedata_core_write_replacement_tests)
+
+    add_test_executable(savedata_native_write_replacement_tests tests/SaveDataWriteReplacement.cpp)
+    target_include_directories(savedata_native_write_replacement_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_definitions(savedata_native_write_replacement_tests PRIVATE SAVEDATA_NATIVE_BACKEND)
+    target_link_libraries(savedata_native_write_replacement_tests PRIVATE libSceSaveData.native)
+    configure_windows_unwind(savedata_native_write_replacement_tests)
+    add_test(NAME savedata_native_write_replacement COMMAND savedata_native_write_replacement_tests)
+
+    add_test_executable(savedata_replace_file_failure_tests tests/SaveDataFileWriteFailure.cpp)
+    target_include_directories(savedata_replace_file_failure_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    configure_windows_unwind(savedata_replace_file_failure_tests)
+    add_test(NAME savedata_replace_file_failure COMMAND savedata_replace_file_failure_tests)
+
+    if(MINGW)
+        target_compile_options(savedata_core_write_replacement_tests PRIVATE -fasynchronous-unwind-tables)
+        target_compile_options(savedata_native_write_replacement_tests PRIVATE -fasynchronous-unwind-tables)
+        target_compile_options(savedata_replace_file_failure_tests PRIVATE -fasynchronous-unwind-tables)
+    endif()
+    if(WIN32)
+        set_tests_properties(savedata_core_write_replacement PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceSaveData>")
+        set_tests_properties(savedata_native_write_replacement PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceSaveData.native>")
+    endif()
+endif()
+
+if(MINGW)
+    foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
+        string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    endforeach()
+endif()
 add_executable(application_heap_tests EXCLUDE_FROM_ALL tests/ApplicationHeap.cpp)
 target_include_directories(application_heap_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(application_heap_tests PRIVATE libc)

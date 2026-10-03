@@ -46,24 +46,44 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SSextI32I8:
         case RdnaOpcode::SSextI32I16:
         case RdnaOpcode::SBcnt0I32B32:
+        case RdnaOpcode::SBcnt0I32B64:
         case RdnaOpcode::SBcnt1I32B32:
         case RdnaOpcode::SBcnt1I32B64:
         case RdnaOpcode::SFf0I32B32:
+        case RdnaOpcode::SFf0I32B64:
         case RdnaOpcode::SFf1I32B32:
         case RdnaOpcode::SFf1I32B64:
         case RdnaOpcode::SFlbitI32B32:
         case RdnaOpcode::SFlbitI32B64:
+        case RdnaOpcode::SFlbitI32:
+        case RdnaOpcode::SFlbitI32I64:
         case RdnaOpcode::SBitreplicateB64B32:
+        case RdnaOpcode::SQuadmaskB32:
         case RdnaOpcode::SQuadmaskB64:
         case RdnaOpcode::SAndSaveexecB32:
+        case RdnaOpcode::SOrSaveexecB32:
+        case RdnaOpcode::SXorSaveexecB32:
+        case RdnaOpcode::SAndn2SaveexecB32:
         case RdnaOpcode::SOrn2SaveexecB32:
+        case RdnaOpcode::SNandSaveexecB32:
+        case RdnaOpcode::SNorSaveexecB32:
+        case RdnaOpcode::SXnorSaveexecB32:
         case RdnaOpcode::SAndn1SaveexecB32:
+        case RdnaOpcode::SOrn1SaveexecB32:
+        case RdnaOpcode::SAndn1WrexecB32:
+        case RdnaOpcode::SAndn2WrexecB32:
         case RdnaOpcode::SAndSaveexecB64:
         case RdnaOpcode::SOrSaveexecB64:
         case RdnaOpcode::SXorSaveexecB64:
         case RdnaOpcode::SAndn2SaveexecB64:
         case RdnaOpcode::SOrn2SaveexecB64:
+        case RdnaOpcode::SNandSaveexecB64:
+        case RdnaOpcode::SNorSaveexecB64:
+        case RdnaOpcode::SXnorSaveexecB64:
         case RdnaOpcode::SAndn1SaveexecB64:
+        case RdnaOpcode::SOrn1SaveexecB64:
+        case RdnaOpcode::SAndn1WrexecB64:
+        case RdnaOpcode::SAndn2WrexecB64:
         case RdnaOpcode::SNotB32:
         case RdnaOpcode::SNotB64:
         case RdnaOpcode::SWqmB32:
@@ -72,6 +92,8 @@ bool IsScalarAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::SSubbU32:
         case RdnaOpcode::SBitcmp0B32:
         case RdnaOpcode::SBitcmp1B32:
+        case RdnaOpcode::SBitcmp0B64:
+        case RdnaOpcode::SBitcmp1B64:
         case RdnaOpcode::SBitset0B32:
         case RdnaOpcode::SBitset1B32:
         case RdnaOpcode::SBitset0B64:
@@ -134,6 +156,8 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VSubF32:
         case RdnaOpcode::VMulF32:
         case RdnaOpcode::VMadF32:
+        case RdnaOpcode::VMadLegacyF32:
+        case RdnaOpcode::VMullitF32:
         case RdnaOpcode::VFmaF32:
         case RdnaOpcode::VAddI32:
         case RdnaOpcode::VSubI32:
@@ -141,6 +165,10 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VMulHiU32:
         case RdnaOpcode::VMadU64U32:
         case RdnaOpcode::VSadU32:
+        case RdnaOpcode::VSadU8:
+        case RdnaOpcode::VSadHiU8:
+        case RdnaOpcode::VSadU16:
+        case RdnaOpcode::VMsadU8:
         case RdnaOpcode::VAndB32:
         case RdnaOpcode::VOrB32:
         case RdnaOpcode::VXorB32:
@@ -230,6 +258,8 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VFmaakF16:
         case RdnaOpcode::VMulI32I24:
         case RdnaOpcode::VMulU32U24:
+        case RdnaOpcode::VMulHiI32I24:
+        case RdnaOpcode::VMulHiU32U24:
         case RdnaOpcode::VMulLoI32:
         case RdnaOpcode::VMulHiI32:
         case RdnaOpcode::VCvtPkrtzF16F32:
@@ -247,19 +277,25 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VMin3I32:
         case RdnaOpcode::VMin3U32:
         case RdnaOpcode::VMin3F16:
+        case RdnaOpcode::VMin3I16:
+        case RdnaOpcode::VMin3U16:
         case RdnaOpcode::VMax3F32:
         case RdnaOpcode::VMax3I32:
         case RdnaOpcode::VMax3U32:
         case RdnaOpcode::VMax3F16:
+        case RdnaOpcode::VMax3I16:
+        case RdnaOpcode::VMax3U16:
         case RdnaOpcode::VMed3F32:
         case RdnaOpcode::VMed3I32:
         case RdnaOpcode::VMed3U32:
         case RdnaOpcode::VMed3F16:
         case RdnaOpcode::VMed3I16:
+        case RdnaOpcode::VMed3U16:
         case RdnaOpcode::VAdd3U32:
         case RdnaOpcode::VLshlAddU32:
         case RdnaOpcode::VAddLshlU32:
         case RdnaOpcode::VPermB32:
+        case RdnaOpcode::VLerpU8:
         case RdnaOpcode::VXadU32:
         case RdnaOpcode::VLshlOrB32:
         case RdnaOpcode::VAndOrB32:
@@ -314,6 +350,14 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VAshrrevI32:
         case RdnaOpcode::VLshlrevB64:
         case RdnaOpcode::VLshrrevB64:
+        case RdnaOpcode::VAshrrevI64:
+        case RdnaOpcode::VAddNcI32:
+        case RdnaOpcode::VSubNcI32:
+        case RdnaOpcode::VMulLoU16:
+        case RdnaOpcode::VMadU16:
+        case RdnaOpcode::VMadI16:
+        case RdnaOpcode::VMadU32U16:
+        case RdnaOpcode::VMadI32I16:
         case RdnaOpcode::VLshlrevB16:
         case RdnaOpcode::VLshrrevB16:
         case RdnaOpcode::VAshrrevI16:
@@ -365,6 +409,12 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpGtI16:
         case RdnaOpcode::VCmpNeI16:
         case RdnaOpcode::VCmpGeI16:
+        case RdnaOpcode::VCmpxLtI16:
+        case RdnaOpcode::VCmpxEqI16:
+        case RdnaOpcode::VCmpxLeI16:
+        case RdnaOpcode::VCmpxGtI16:
+        case RdnaOpcode::VCmpxNeI16:
+        case RdnaOpcode::VCmpxGeI16:
         case RdnaOpcode::VCmpLtF16:
         case RdnaOpcode::VCmpEqF16:
         case RdnaOpcode::VCmpLeF16:
@@ -391,7 +441,11 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpLeU16:
         case RdnaOpcode::VCmpGtU16:
         case RdnaOpcode::VCmpxLtU16:
+        case RdnaOpcode::VCmpxEqU16:
+        case RdnaOpcode::VCmpxLeU16:
         case RdnaOpcode::VCmpxGtU16:
+        case RdnaOpcode::VCmpxNeU16:
+        case RdnaOpcode::VCmpxGeU16:
         case RdnaOpcode::VCmpNeU16:
         case RdnaOpcode::VCmpGeU16:
         case RdnaOpcode::VCmpFU32:
@@ -408,6 +462,56 @@ bool IsVectorAluOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpGtU64:
         case RdnaOpcode::VCmpNeU64:
         case RdnaOpcode::VCmpxNeI64:
+        case RdnaOpcode::VCmpxFF32:
+        case RdnaOpcode::VCmpxOF32:
+        case RdnaOpcode::VCmpxUF32:
+        case RdnaOpcode::VCmpxTruF32:
+        case RdnaOpcode::VCmpxFI32:
+        case RdnaOpcode::VCmpxTI32:
+        case RdnaOpcode::VCmpxFU32:
+        case RdnaOpcode::VCmpxTU32:
+        case RdnaOpcode::VCmpFI64:
+        case RdnaOpcode::VCmpLtI64:
+        case RdnaOpcode::VCmpLeI64:
+        case RdnaOpcode::VCmpGtI64:
+        case RdnaOpcode::VCmpNeI64:
+        case RdnaOpcode::VCmpGeI64:
+        case RdnaOpcode::VCmpTI64:
+        case RdnaOpcode::VCmpxFI64:
+        case RdnaOpcode::VCmpxLtI64:
+        case RdnaOpcode::VCmpxEqI64:
+        case RdnaOpcode::VCmpxLeI64:
+        case RdnaOpcode::VCmpxGtI64:
+        case RdnaOpcode::VCmpxGeI64:
+        case RdnaOpcode::VCmpxTI64:
+        case RdnaOpcode::VCmpFU64:
+        case RdnaOpcode::VCmpLeU64:
+        case RdnaOpcode::VCmpGeU64:
+        case RdnaOpcode::VCmpTU64:
+        case RdnaOpcode::VCmpxFU64:
+        case RdnaOpcode::VCmpxLtU64:
+        case RdnaOpcode::VCmpxEqU64:
+        case RdnaOpcode::VCmpxLeU64:
+        case RdnaOpcode::VCmpxGtU64:
+        case RdnaOpcode::VCmpxGeU64:
+        case RdnaOpcode::VCmpxTU64:
+        case RdnaOpcode::VCmpFF16:
+        case RdnaOpcode::VCmpOF16:
+        case RdnaOpcode::VCmpUF16:
+        case RdnaOpcode::VCmpNgeF16:
+        case RdnaOpcode::VCmpNlgF16:
+        case RdnaOpcode::VCmpNgtF16:
+        case RdnaOpcode::VCmpNleF16:
+        case RdnaOpcode::VCmpNltF16:
+        case RdnaOpcode::VCmpTruF16:
+        case RdnaOpcode::VCmpxFF16:
+        case RdnaOpcode::VCmpxLgF16:
+        case RdnaOpcode::VCmpxOF16:
+        case RdnaOpcode::VCmpxUF16:
+        case RdnaOpcode::VCmpxNgeF16:
+        case RdnaOpcode::VCmpxNlgF16:
+        case RdnaOpcode::VCmpxNleF16:
+        case RdnaOpcode::VCmpxTruF16:
         case RdnaOpcode::VCmpxNeU64:
         case RdnaOpcode::VCmpxLtU32:
         case RdnaOpcode::VCmpxEqU32:
@@ -509,6 +613,31 @@ bool IsImageOpcode(RdnaOpcode opcode) {
     requireClassifiableOpcode(opcode);
     switch (opcode) {
         case RdnaOpcode::ImageSample:
+        case RdnaOpcode::ImageSampleBCl:
+        case RdnaOpcode::ImageSampleBClO:
+        case RdnaOpcode::ImageSampleBO:
+        case RdnaOpcode::ImageSampleC:
+        case RdnaOpcode::ImageSampleCB:
+        case RdnaOpcode::ImageSampleCBCl:
+        case RdnaOpcode::ImageSampleCBClO:
+        case RdnaOpcode::ImageSampleCBO:
+        case RdnaOpcode::ImageSampleCCl:
+        case RdnaOpcode::ImageSampleCClO:
+        case RdnaOpcode::ImageSampleCD:
+        case RdnaOpcode::ImageSampleCDCl:
+        case RdnaOpcode::ImageSampleCDClO:
+        case RdnaOpcode::ImageSampleCDO:
+        case RdnaOpcode::ImageSampleCL:
+        case RdnaOpcode::ImageSampleCLzO:
+        case RdnaOpcode::ImageSampleCLO:
+        case RdnaOpcode::ImageSampleCO:
+        case RdnaOpcode::ImageSampleCl:
+        case RdnaOpcode::ImageSampleClO:
+        case RdnaOpcode::ImageSampleD:
+        case RdnaOpcode::ImageSampleDCl:
+        case RdnaOpcode::ImageSampleDO:
+        case RdnaOpcode::ImageSampleLzO:
+        case RdnaOpcode::ImageSampleO:
         case RdnaOpcode::ImageSampleLz:
         case RdnaOpcode::ImageLoad:
         case RdnaOpcode::ImageStore:
@@ -530,6 +659,25 @@ bool IsImageOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::ImageGather4CO:
         case RdnaOpcode::ImageGather4CLzO:
         case RdnaOpcode::ImageGather4h:
+        case RdnaOpcode::ImageGather4:
+        case RdnaOpcode::ImageGather4B:
+        case RdnaOpcode::ImageGather4BCl:
+        case RdnaOpcode::ImageGather4BClO:
+        case RdnaOpcode::ImageGather4BO:
+        case RdnaOpcode::ImageGather4Cl:
+        case RdnaOpcode::ImageGather4ClO:
+        case RdnaOpcode::ImageGather4CB:
+        case RdnaOpcode::ImageGather4CBCl:
+        case RdnaOpcode::ImageGather4CBClO:
+        case RdnaOpcode::ImageGather4CBO:
+        case RdnaOpcode::ImageGather4CCl:
+        case RdnaOpcode::ImageGather4CClO:
+        case RdnaOpcode::ImageGather4CL:
+        case RdnaOpcode::ImageGather4CLO:
+        case RdnaOpcode::ImageGather4L:
+        case RdnaOpcode::ImageGather4LO:
+        case RdnaOpcode::ImageGather4O:
+        case RdnaOpcode::ImageBvhIntersectRay:
             return true;
         default:
             return false;

@@ -1,9 +1,12 @@
+#include <string>
+#include <optional>
 #ifndef CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_DRAW_HPP
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_DRAW_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Recipe.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include <memory>
 #include <vector>
 
@@ -13,6 +16,19 @@ namespace AgcDriver::Graphics {
 // built for its draw-cache entry (design_cpu_final M8; null otherwise, and always under
 // APS5_NO_DRAW_RECIPE=1).
 void Draw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots = {}, std::shared_ptr<const DrawRecipe>* recipe = nullptr);
+std::optional<std::string> KnownValidationFailure(const Context& context, std::span<const CompiledShader> shaders, const State& state);
+
+struct DrawInputCopy {
+    std::shared_ptr<Buffer> buffer;
+    bool reused = false;
+    std::uint32_t derived = 0;
+    std::uint64_t generation = 0;
+    std::uint64_t registryGeneration = 0;
+};
+DrawInputCopy CopyDrawInput(const Context& context, Recorder* recorder, std::uint64_t address, std::size_t bytes, std::size_t alignment, Recorder::SnapshotUse use);
+void KeepDrawInput(Recorder* recorder, std::uint64_t address, const DrawInputCopy& copy, Recorder::SnapshotUse use, std::uint32_t derived);
+
+std::array<std::uint32_t, 4> MeshIndexBufferDescriptor(const Pm4::DrawParameters& draw, std::uint64_t unreadAddress);
 
 // Why DrawWithRecipe did not record from the recipe (the caller then runs Draw): the draw is not
 // recordable (no recorder, APS5_SYNC_DRAWS, APS5_DUMP_TARGETS), a resident target is gone from the
@@ -69,6 +85,8 @@ void CountDrawSkip(DrawSkip kind, double us);
 // which the switch can turn into APS5_NO_RECORD_COPIED_DRAWS. Until then such draws are recorded and
 // waited for at once. Read and written under GuestMemory::GpuMutex, like the device's list.
 std::shared_ptr<std::vector<std::shared_ptr<ShaderResources>>> DrawCopiedWriters();
+
+void RunColorMetadataPass(const Context& context, const ColorMetadataPass& pass);
 
 }
 

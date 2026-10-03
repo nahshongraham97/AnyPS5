@@ -4,7 +4,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
-#include "DirectMemory.hpp"
+#include "prx/libkernel/DirectMemory/DirectMemory.hpp"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -111,12 +111,11 @@ void _releaseFlexible(uintptr_t start, size_t len) {
 extern "C" {
 
 int APS5_VABI sceKernelAllocateDirectMemory(int64_t search_start, int64_t search_end, size_t len, size_t alignment, int memory_type, int64_t* phys_addr_out) {
- (void)memory_type;
  if (search_start < 0 || search_end <= search_start || len == 0
   || (len & (PS5_PAGE_SIZE - 1)) || !phys_addr_out
   || (alignment != 0 && (alignment & (PS5_PAGE_SIZE - 1))))
   return SCE_KERNEL_ERROR_EINVAL;
- return DirectMemoryAlloc(search_start, search_end, len, alignment, phys_addr_out);
+ return DirectMemoryAlloc(search_start, search_end, len, alignment, memory_type, phys_addr_out);
 }
 
 int APS5_VABI sceKernelAllocateMainDirectMemory(size_t len, size_t alignment, int memory_type, int64_t* phys_addr_out) {
@@ -126,23 +125,21 @@ int APS5_VABI sceKernelAllocateMainDirectMemory(size_t len, size_t alignment, in
 int APS5_VABI sceKernelAvailableDirectMemorySize(int64_t search_start, int64_t search_end, size_t alignment, int64_t* phys_addr_out, size_t* size_out) {
  if (!phys_addr_out || !size_out) return SCE_KERNEL_ERROR_EINVAL;
  int64_t tmpPhys = 0;
- int ret = DirectMemoryAlloc(search_start, search_end, PS5_PAGE_SIZE, alignment, &tmpPhys);
+ int ret = DirectMemoryAlloc(search_start, search_end, PS5_PAGE_SIZE, alignment, -1, &tmpPhys);
  if (ret != 0) { *phys_addr_out = 0; *size_out = 0; return ret; }
  DirectMemoryFree(tmpPhys, PS5_PAGE_SIZE);
  *phys_addr_out = tmpPhys;
- *size_out = static_cast<size_t>(search_end) - static_cast<size_t>(tmpPhys);
+ *size_out = DirectMemoryFreeRun(static_cast<uint64_t>(tmpPhys), static_cast<uint64_t>(search_end));
  return 0;
 }
 
 int APS5_VABI sceKernelDirectMemoryQuery(int64_t offset, int flags, void* info, size_t info_size) {
- (void)flags;
+ constexpr int SCE_KERNEL_DMQ_FIND_NEXT = 1;
  if (!info || offset < 0) return SCE_KERNEL_ERROR_EINVAL;
  struct DirectMemoryQueryInfo { int64_t start; int64_t end; int memory_type; };
  if (info_size < sizeof(DirectMemoryQueryInfo)) return SCE_KERNEL_ERROR_EINVAL;
  auto* q = static_cast<DirectMemoryQueryInfo*>(info);
- q->start = offset & ~static_cast<int64_t>(PS5_PAGE_SIZE - 1);
- q->end = q->start + PS5_PAGE_SIZE;
- q->memory_type = 3;
+ if (!DirectMemoryFind(offset, (flags & SCE_KERNEL_DMQ_FIND_NEXT) != 0, &q->start, &q->end, &q->memory_type)) return SCE_KERNEL_ERROR_EACCES;
  return 0;
 }
 
@@ -178,6 +175,10 @@ int32_t APS5_VABI sceKernelMapNamedFlexibleMemory(void** addr_in_out, size_t len
  return result;
 }
 
+int32_t APS5_VABI sceKernelMapNamedFlexibleMemoryInternal(void** addr_in_out, size_t len, int prot, int flags, const char* name) {
+ return sceKernelMapNamedFlexibleMemory(addr_in_out, len, prot, flags, name);
+}
+
 int APS5_VABI sceKernelMprotect(const void* addr, size_t len, int prot) {
  return DoMprotect(addr, len, prot);
 }
@@ -195,8 +196,7 @@ int APS5_VABI sceKernelReleaseDirectMemory(int64_t start, size_t len) {
 }
 
 int APS5_VABI sceKernelReserveVirtualRange(void** addr, size_t len, int flags, size_t alignment) {
- (void)flags;
- return DoReserveVirtual(addr, len, alignment);
+ return DoReserveVirtual(addr, len, flags, alignment);
 }
 
 int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInfo* info, uint64_t info_size) {
@@ -219,9 +219,23 @@ int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInf
   info->start = best->allocationAddress;
   info->end = best->allocationAddress + best->allocationBytes;
   info->protection = (best->readable ? 1 : 0) | (best->writable ? 2 : 0) | (!best->releasable ? 4 : 0);
-  info->is_direct = best->releasable ? 1u : 0u;
+  int recorded = 0;
+  if (GuestProtection(std::max<uintptr_t>(address, info->start), &recorded)) info->protection = recorded;
+  std::uintptr_t directStart = 0;
+  std::uintptr_t directEnd = 0;
+  std::uint64_t physicalOffset = 0;
+  int memoryType = 0;
+  const bool direct = QueryDirectMapping(std::max<uintptr_t>(address, info->start), &directStart, &directEnd, &physicalOffset, &memoryType);
+  info->is_direct = direct ? 1u : 0u;
+  info->is_flexible = !direct && best->releasable ? 1u : 0u;
+  if (direct) {
+   info->start = std::max(info->start, directStart);
+   info->end = std::min(info->end, directEnd);
+   info->memory_type = memoryType;
+  }
   info->is_committed = 1;
   ApplyRangeName(std::max<uintptr_t>(address, info->start), info);
+  if (direct) info->offset = physicalOffset + info->start - directStart;
   return 0;
  }
  // Memory the registry does not know (the title's own heap blocks, stacks): the host's committed
@@ -272,20 +286,17 @@ int APS5_VABI sceKernelCheckedReleaseDirectMemory(int64_t start, size_t len) {
 }
 
 int APS5_VABI sceKernelMtypeprotect(const void* addr, size_t len, int type, int prot) {
- (void)addr;
- (void)len;
  (void)type;
- (void)prot;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ return DoMprotect(addr, len, prot);
 }
 
 int APS5_VABI sceKernelQueryMemoryProtection(void* addr, void** start, void** end, int* prot) {
- (void)addr;
- (void)start;
- (void)end;
- (void)prot;
- NotImplemented_nid_no_patch(__func__);
+ VirtualQueryInfo info{};
+ const int result = sceKernelVirtualQuery(addr, 0, &info, sizeof(info));
+ if (result != 0) return result;
+ if (start) *start = reinterpret_cast<void*>(info.start);
+ if (end) *end = reinterpret_cast<void*>(info.end);
+ if (prot) *prot = info.protection;
  return 0;
 }
 
