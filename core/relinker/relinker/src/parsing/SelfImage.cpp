@@ -10,6 +10,10 @@
 namespace Relinker {
 namespace {
 constexpr std::uint64_t MaxReconstructedSize = 2ull * 1024 * 1024 * 1024;
+constexpr std::uint64_t Ps4SelfMagic = 0x1d3d154f;
+constexpr std::uint64_t Ps5SelfMagic = 0xeef51454;
+constexpr std::uint64_t HasBlocks = 0x800;
+constexpr std::uint32_t Ps5VersionSegment = 0x6fffff01;
 
 bool Fits(const std::vector<std::uint8_t>& bytes, std::uint64_t offset, std::uint64_t size) {
     return offset <= bytes.size() && size <= bytes.size() - offset;
@@ -23,16 +27,18 @@ std::uint64_t Read(const std::vector<std::uint8_t>& bytes, std::uint64_t offset,
     return value;
 }
 
-struct Program { std::uint64_t offset, size; };
-struct Segment { std::uint64_t flags, offset, size; };
+struct Program { std::uint32_t type; std::uint64_t offset, size; };
+struct Segment { std::uint64_t flags, offset, size, decodedSize; };
 }
 
 std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
     if (Fits(source, 0, 4) && source[0] == 0x7f && source[1] == 'E' &&
         source[2] == 'L' && source[3] == 'F') return source;
-    if (!Fits(source, 0, 4) || Read(source, 0, 4) != 0x1d3d154f)
+    if (!Fits(source, 0, 4) ||
+        (Read(source, 0, 4) != Ps4SelfMagic && Read(source, 0, 4) != Ps5SelfMagic))
         throw std::runtime_error("Input is neither a raw ELF nor a recognized SELF image");
     if (!Fits(source, 0, 32)) throw std::runtime_error("Truncated SELF header");
+    if (source[6] != 1) throw std::runtime_error("Unsupported SELF endianness");
     const auto count = Read(source, 24, 2);
     if (count == 0 || count > 4096 || !Fits(source, 32, count * 32))
         throw std::runtime_error("Invalid SELF segment table");
@@ -50,25 +56,16 @@ std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
         !Fits(source, elfOffset + phoff, phcount * phentsize))
         throw std::runtime_error("Invalid SELF embedded ELF program headers");
 
-    const auto shoff = Read(source, elfOffset + 40, 8);
-    const auto shentsize = Read(source, elfOffset + 58, 2);
-    const auto shcount = Read(source, elfOffset + 60, 2);
-    if (shcount && (shentsize != 64 || !shoff ||
-                    shoff > MaxReconstructedSize || shcount * shentsize > MaxReconstructedSize - shoff ||
-                    shoff > std::numeric_limits<std::uint64_t>::max() - elfOffset ||
-                    !Fits(source, elfOffset + shoff, shcount * shentsize)))
-        throw std::runtime_error("SELF ELF section headers are unavailable or malformed");
-
     std::vector<Program> programs;
     std::uint64_t outputSize = std::max<std::uint64_t>(64, phoff + phcount * phentsize);
-    if (shcount) outputSize = std::max(outputSize, shoff + shcount * shentsize);
     for (std::uint64_t index = 0; index < phcount; ++index) {
         const auto at = elfOffset + phoff + index * phentsize;
+        const auto type = static_cast<std::uint32_t>(Read(source, at, 4));
         const auto offset = Read(source, at + 8, 8);
         const auto size = Read(source, at + 32, 8);
         if (offset > MaxReconstructedSize || size > MaxReconstructedSize - offset)
             throw std::runtime_error("SELF ELF program segment exceeds the reconstruction limit");
-        programs.push_back({offset, size});
+        programs.push_back({type, offset, size});
         outputSize = std::max(outputSize, offset + size);
     }
     if (outputSize > MaxReconstructedSize)
@@ -77,7 +74,8 @@ std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
     std::vector<Segment> segments;
     for (std::uint64_t index = 0; index < count; ++index) {
         const auto at = 32 + index * 32;
-        segments.push_back({Read(source, at, 8), Read(source, at + 8, 8), Read(source, at + 16, 8)});
+        segments.push_back({Read(source, at, 8), Read(source, at + 8, 8),
+                            Read(source, at + 16, 8), Read(source, at + 24, 8)});
     }
     std::vector<std::uint8_t> elf(static_cast<std::size_t>(outputSize), 0);
     std::vector<std::uint8_t> covered(elf.size(), 0);
@@ -95,14 +93,36 @@ std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
     };
     copy(0, elfOffset, 64);
     copy(phoff, elfOffset + phoff, phcount * phentsize);
-    if (shcount) copy(shoff, elfOffset + shoff, shcount * shentsize);
+    // The relinker consumes program headers and dynamic tags, not sections.
+    // A SELF may retain stale section offsets without embedding that table.
+    // Drop the optional table rather than copying unrelated SELF metadata.
+    std::fill(elf.begin() + 40, elf.begin() + 48, 0);
+    std::fill(elf.begin() + 58, elf.begin() + 64, 0);
+    // A version segment can be stored after the logical end of a SELF.
+    const auto fileSize = Read(source, 16, 8);
+    for (const auto& program : programs)
+        if (program.type == Ps5VersionSegment && program.size &&
+            Fits(source, fileSize, program.size))
+            copy(program.offset, fileSize, program.size);
     for (const auto& segment : segments) {
-        const auto id = (segment.flags >> 20) & 0xfff;
+        const auto id = (segment.flags >> 20) & 0xffff;
         if (id >= programs.size() || !programs[id].size) continue;
+        // Entries without HasBlocks commonly describe signatures or digests,
+        // not program bytes. Retain the older plain-entry layout only when
+        // its stored and decoded sizes match the entire program segment.
+        if (!(segment.flags & HasBlocks)) {
+            const bool hasDataEntry = std::any_of(segments.begin(), segments.end(), [id](const Segment& other) {
+                return (other.flags & HasBlocks) && ((other.flags >> 20) & 0xffff) == id;
+            });
+            if (hasDataEntry || segment.size != programs[id].size ||
+                (segment.decodedSize && segment.decodedSize != programs[id].size)) continue;
+        }
         if (segment.flags & 2) throw std::runtime_error("SELF contains encrypted segment " + std::to_string(id) + "; supply a legally decrypted ELF image");
-        if (segment.flags & (8 | 0x800)) throw std::runtime_error("SELF contains compressed or blocked segment " + std::to_string(id) + "; extraction is unsupported");
+        if (segment.flags & 8) throw std::runtime_error("SELF contains compressed segment " + std::to_string(id) + "; extraction is unsupported");
         if (segment.size != programs[id].size)
             throw std::runtime_error("SELF segment " + std::to_string(id) + " size differs from its ELF program header");
+        if (segment.decodedSize && segment.decodedSize != programs[id].size)
+            throw std::runtime_error("SELF segment " + std::to_string(id) + " decoded size differs from its ELF program header");
         copy(programs[id].offset, segment.offset, segment.size);
     }
     for (std::size_t index = 0; index < programs.size(); ++index) {

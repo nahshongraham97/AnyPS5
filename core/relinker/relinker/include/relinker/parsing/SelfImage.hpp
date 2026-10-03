@@ -5,8 +5,9 @@
 
 namespace Relinker {
 
-// A raw ELF is returned unchanged. A SELF with plaintext, uncompressed
-// segments is reconstructed as a raw ELF. Protected segments fail explicitly.
+// A raw ELF is returned unchanged. PS4/PS5 SELF images with contiguous
+// plaintext, uncompressed program segments are reconstructed as raw ELF.
+// Encrypted and compressed segments fail explicitly.
 std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source);
 
 }

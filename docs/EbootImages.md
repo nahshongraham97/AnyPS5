@@ -1,14 +1,21 @@
 # `eboot.bin` and SELF inputs
 
 AnyPS5 accepts a raw x86-64 ELF irrespective of its file extension. The
-relinker can now reconstruct an ELF from a SELF whose required program
-segments are present as plaintext and uncompressed data. It validates the
-segment table, ranges, overlaps, and full coverage before running the
-existing ELF relinker. This is a file format step; it does not implement a
+relinker can reconstruct an ELF from PS4- or PS5-magic SELF images whose
+required program segments are present as contiguous plaintext and uncompressed
+data. This includes plaintext FSELF entries marked with `has_blocks`; those
+entries are not themselves evidence of encryption or compression. Digest and
+signature entries are not treated as program data. ELF section headers are
+omitted from the reconstruction because SELF containers can retain stale
+section offsets and the relinker uses program headers and dynamic tags.
+The reader validates segment ranges, overlaps, decoded lengths, and full
+coverage before running the existing ELF relinker. This file format step
+does not implement a
 console kernel, a game's graphics API, or input devices.
 
-SELF segments marked encrypted, compressed, or blocked are rejected with a
-named segment ID. An encrypted retail title requires a lawfully obtained
+SELF segments marked encrypted or compressed are rejected with a named
+segment ID. Noncontiguous or unsupported block layouts also fail range,
+size, or coverage checks. An encrypted retail title requires a lawfully obtained
 decrypted ELF image before AnyPS5 can relink it. Supplying the original
 protected `eboot.bin` alone does not supply plaintext or decryption keys.
 An `eboot.bin` from a disc or package may also need its surrounding `app0`
