@@ -263,7 +263,7 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         emitFloatCompare(inst, IrOpcode::FPUnordLessThanEqual32, true, false);
         return true;
     case RdnaOpcode::VCmpNleF16:
-        emitFloatCompare(inst, IrOpcode::FPUnordLessThan32, true, false, true);
+        emitFloatCompare(inst, IrOpcode::FPUnordGreaterThan32, true, false);
         return true;
     case RdnaOpcode::VCmpNltF16:
         emitFloatCompare(inst, IrOpcode::FPUnordGreaterThanEqual32, true, false);
@@ -290,7 +290,7 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
         emitFloatCompare(inst, IrOpcode::FPUnordEqual32, true, true);
         return true;
     case RdnaOpcode::VCmpxNleF16:
-        emitFloatCompare(inst, IrOpcode::FPUnordLessThan32, true, true, true);
+        emitFloatCompare(inst, IrOpcode::FPUnordGreaterThan32, true, true);
         return true;
     case RdnaOpcode::VCmpxTruF16:
         emitCompareConstant(inst, true, false, true);
