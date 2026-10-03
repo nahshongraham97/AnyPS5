@@ -70,7 +70,9 @@ std::size_t SyncOnAddress::Waiting(const volatile void* address) {
 extern "C" {
 
 int APS5_VABI sceKernelSyncOnAddressWait(volatile std::uint32_t* address,
-                                        std::uint32_t expected, const std::uint32_t* timeoutMicros) {
+                                        std::uint32_t expected, const std::uint32_t* timeoutMicros,
+                                        const char* name) {
+    (void)name;
     try { return Wait(address, expected, timeoutMicros); }
     catch (const std::bad_alloc&) { return OUT_OF_MEMORY; }
     catch (...) { return INVALID_ARGUMENT; }

@@ -15,7 +15,8 @@ std::size_t Waiting(const volatile void* address);
 
 extern "C" {
 int APS5_VABI sceKernelSyncOnAddressWait(volatile std::uint32_t* address,
-                                        std::uint32_t expected, const std::uint32_t* timeoutMicros);
+                                        std::uint32_t expected, const std::uint32_t* timeoutMicros,
+                                        const char* name = nullptr);
 int APS5_VABI sceKernelSyncOnAddressWait32(volatile std::uint32_t* address,
                                           std::uint32_t expected, const std::uint32_t* timeoutMicros);
 int APS5_VABI sceKernelSyncOnAddressWait64(volatile std::uint64_t* address,
