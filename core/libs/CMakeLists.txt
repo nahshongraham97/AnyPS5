@@ -63,6 +63,7 @@ add_custom_command(
         DEPENDS nid_patcher libc ${LIBC_UNPATCHED}
         COMMENT "Patching NIDs for libc"
 )
+add_custom_target(patched_libc DEPENDS ${LIBC_PATCHED})
 
 file(GLOB LIBS_DIRS LIST_DIRECTORIES true ${CMAKE_CURRENT_SOURCE_DIR}/prx/*)
 list(REMOVE_ITEM LIBS_DIRS ${LIBC_DIR})
@@ -113,6 +114,7 @@ foreach(LIB_DIR ${LIBS_DIRS})
                 DEPENDS nid_patcher ${LIB_NAME} ${UNPATCHED_FILE} ${LIBC_UNPATCHED}
                 COMMENT "Patching NIDs for ${LIB_NAME}"
         )
+        add_custom_target(patched_${LIB_NAME} DEPENDS ${PATCHED_FILE})
 
         list(APPEND PATCHED_OUTPUTS ${PATCHED_FILE})
     endif()
@@ -132,6 +134,19 @@ list(APPEND PATCHED_OUTPUTS ${LIBCOHTML_PROSPERO_PATCHED})
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
 if(BUILD_TESTING)
+    add_executable(guest_system_command_tests tests/GuestSystemCommand.cpp)
+    target_include_directories(guest_system_command_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_system_command_tests PRIVATE libc)
+    configure_windows_unwind(guest_system_command_tests)
+    add_test(NAME guest_system_command COMMAND guest_system_command_tests)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/guest_system_command_working_directory")
+    set_tests_properties(guest_system_command PROPERTIES
+        TIMEOUT 20
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/guest_system_command_working_directory")
+    if(WIN32)
+        set_tests_properties(guest_system_command PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_executable(guest_collation_tests tests/GuestCollation.cpp)
     target_include_directories(guest_collation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(guest_collation_tests PRIVATE libc)
