@@ -189,6 +189,7 @@ struct SpirvTarget {
     std::uint32_t maxWorkgroupSharedMemoryBytes;
     std::optional<MeshTargetLimits> mesh;
     std::optional<TessellationTargetLimits> tessellation;
+    bool nonConstantImageOffsets = false;
 };
 
 struct BindingLayout {

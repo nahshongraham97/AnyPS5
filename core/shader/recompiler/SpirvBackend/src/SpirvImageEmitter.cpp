@@ -287,8 +287,7 @@ std::uint32_t ResultVector(SpirvValueEmitContext& ctx, const ImageEmitAccess& ac
             } else {
                 const auto pair = state.module.AllocateId();
                 state.module.AddFunction(spv::OpCompositeConstruct, TypeF32Vector(state, 2), pair, low, high);
-                packed[word] = state.module.AllocateId();
-                state.module.AddFunction(spv::OpExtInst, TypeU32(state), packed[word], GlslStd450(state), GLSLstd450PackHalf2x16, pair);
+                packed[word] = EmitPackHalf2x16(state, pair);
             }
         }
         const auto result = state.module.AllocateId();
@@ -567,6 +566,12 @@ std::uint32_t ImageAtomicOpcode(IrOpcode opcode) {
             return spv::OpAtomicOr;
         case IrOpcode::ImageAtomicXor32:
             return spv::OpAtomicXor;
+        case IrOpcode::ImageAtomicISub32:
+            return spv::OpAtomicISub;
+        case IrOpcode::ImageAtomicSMin32:
+            return spv::OpAtomicSMin;
+        case IrOpcode::ImageAtomicSMax32:
+            return spv::OpAtomicSMax;
         default:
             throw std::runtime_error("opcode is not an image atomic");
     }
@@ -639,13 +644,23 @@ void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     if (access.slot != 0) {
         ctx.Fail(access.inst, "atomics through a bindless image table are unsupported");
     }
-    const auto atomicOpcode = ImageAtomicOpcode(access.inst.Opcode());
-    ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, ctx.Arg(access.inst, 3), [&]() {
+    const auto opcode = access.inst.Opcode();
+    const auto value = ctx.Arg(access.inst, 2);
+    ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, ctx.Arg(access.inst, access.inst.ArgumentCount() - 1u), [&]() {
         const auto pointer = state.module.AllocateId();
         const auto pointerType = TypePointer(state, spv::StorageClassImage, TypeU32(state));
         state.module.AddFunction(spv::OpImageTexelPointer, pointerType, pointer, StorageImageDescriptorPointer(state, access.mem.resource), CoordU32(ctx, access), ConstantU32(state, 0));
+        if (opcode == IrOpcode::ImageAtomicInc32 || opcode == IrOpcode::ImageAtomicDec32) {
+            return AtomicUpdate(state, pointer, ResourceKind::Image, [&](std::uint32_t current) {
+                return opcode == IrOpcode::ImageAtomicInc32 ? AtomicIncrement(state, current, value) : AtomicDecrement(state, current, value);
+            });
+        }
         const auto old = state.module.AllocateId();
-        state.module.AddFunction(atomicOpcode, TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), ctx.Arg(access.inst, 2));
+        if (opcode == IrOpcode::ImageAtomicCmpSwap32) {
+            state.module.AddFunction(spv::OpAtomicCompareExchange, TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), ConstantU32(state, spv::MemorySemanticsMaskNone), value, ctx.Arg(access.inst, 3));
+        } else {
+            state.module.AddFunction(ImageAtomicOpcode(opcode), TypeU32(state), old, pointer, ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), value);
+        }
         EmitDeviceAtomicMemoryBarrier(state);
         return old;
     }));
@@ -800,12 +815,23 @@ void EmitSampleOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, con
             operands.push_back(clamp);
         }
     }
-    if (setup.layout.offset != NoImageComponent) {
-        const auto* packed = access.address.Argument(setup.layout.offset);
-        if (packed == nullptr || !packed->HasImmediate()) {
-            ctx.Fail(access.inst, "requires a constant texel offset for image sampling");
+    const auto constantOffset = [&]() -> const IrValue* {
+        const auto component = GetRdnaImageAddressComponentLayout(mem.imageSampleFlags, setup.layout.offset);
+        const auto argument = component.bitOffset / 32u;
+        if (component.bitWidth != 32u || argument >= access.address.ArgumentCount()) return nullptr;
+        const auto* value = access.address.Argument(argument)->Resolve();
+        return value->HasImmediate() ? value : nullptr;
+    };
+    if (setup.layout.offset != NoImageComponent && constantOffset() == nullptr) {
+        const bool gatherExtended = std::find(state.supportedCapabilities.begin(), state.supportedCapabilities.end(), static_cast<std::uint32_t>(spv::CapabilityImageGatherExtended)) != state.supportedCapabilities.end();
+        if (!state.nonConstantImageOffsets || !gatherExtended) {
+            ctx.Fail(access.inst, "has a texel offset that is not a constant, which image sampling takes only with VK_KHR_maintenance8 and shaderImageGatherExtended");
         }
-        const auto bits = packed->ImmediateU32();
+        state.module.EmitCapability(spv::CapabilityImageGatherExtended);
+        operandMask |= spv::ImageOperandsOffsetMask;
+        operands.insert(operands.end() - ((operandMask & spv::ImageOperandsMinLodMask) != 0u ? 1 : 0), PackedOffset(ctx, access, setup.layout));
+    } else if (setup.layout.offset != NoImageComponent) {
+        const auto bits = constantOffset()->ImmediateU32();
         std::array<std::uint32_t, 3> values{};
         for (std::uint32_t index = 0; index < setup.dimensionInfo.spatialComponents; index++) {
             const auto field = (bits >> (index * 8u)) & 0x3fu;
@@ -907,6 +933,12 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
         case IrOpcode::ImageAtomicAnd32:
         case IrOpcode::ImageAtomicOr32:
         case IrOpcode::ImageAtomicXor32:
+        case IrOpcode::ImageAtomicCmpSwap32:
+        case IrOpcode::ImageAtomicISub32:
+        case IrOpcode::ImageAtomicSMin32:
+        case IrOpcode::ImageAtomicSMax32:
+        case IrOpcode::ImageAtomicInc32:
+        case IrOpcode::ImageAtomicDec32:
             EmitAtomicOp(ctx, access);
             return;
         default:
@@ -975,6 +1007,30 @@ void EmitImageAtomicOr32(SpirvValueEmitContext& ctx, const IrValue& inst) {
 }
 
 void EmitImageAtomicXor32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicCmpSwap32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicISub32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicSMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicInc32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    EmitImage(ctx, inst);
+}
+
+void EmitImageAtomicDec32(SpirvValueEmitContext& ctx, const IrValue& inst) {
     EmitImage(ctx, inst);
 }
 
