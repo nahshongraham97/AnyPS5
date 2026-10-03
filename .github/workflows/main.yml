@@ -102,6 +102,12 @@ jobs:
           foreach ($nid in @('DFmMT80xcNI', 'RXXqi4CtF8w', 'KiJEPEWRyUY')) {
             if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing patched kernel export: $nid" }
           }
+          $rawExports = & objdump -p build/core/libs/libs/unpatched/libkernel.prx
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read unpatched kernel exports' }
+          Write-Host 'Unpatched address synchronization exports:'
+          $rawExports | Select-String -Pattern 'sceKernelSyncOnAddress'
+          Write-Host 'Patched address synchronization exports:'
+          $exports | Select-String -SimpleMatch @('Hc4CaR6JBL0', 'B2n8aDorSH4', 'PZQhiiLXRFs', 'q2y-wDIVWZA')
           foreach ($nid in @('Hc4CaR6JBL0', 'B2n8aDorSH4', 'PZQhiiLXRFs', 'q2y-wDIVWZA')) {
             if (-not ($exports | Select-String -SimpleMatch $nid)) { throw "Missing address synchronization export: $nid" }
           }
