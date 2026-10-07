@@ -90,4 +90,51 @@ int main() {
     Write(badTable, 24, 4097, 2);
     Reject(std::move(badTable), "Invalid SELF segment table");
     Reject({1, 2, 3, 4}, "neither a raw ELF nor a recognized SELF");
+
+    // Test PT_NOTE segment (type 4, vaddr 0, memsz 0) does not fail coverage check
+    {
+        auto withNote = Fixture();
+        // Modify second program header at elf+120 to be PT_NOTE (type 4) with vaddr=0 and memsz=0
+        const std::size_t elf = 64;
+        Write(withNote, elf + 120, 4, 4); // type = PT_NOTE (4)
+        Write(withNote, elf + 120 + 16, 0, 8); // vaddr = 0
+        Write(withNote, elf + 120 + 40, 0, 8); // memsz = 0
+        // Now program segment 1 is a note with vaddr=0, memsz=0. Segment table only covers segment 0.
+        // It should succeed without throwing "missing plaintext ELF program segment 1".
+        const auto unwrappedNote = Relinker::UnwrapSelf(withNote);
+        Require(!unwrappedNote.empty());
+    }
+
+    // Test PS5 version segment (type 0x6fffff01) stored past fileSize
+    {
+        auto withVersion = Fixture((1ull << 20) | 0x800, 0xeef51454);
+        const std::size_t elf = 64;
+        Write(withVersion, 16, withVersion.size(), 8); // fileSize = current size
+        // Add 4 bytes for version segment data past fileSize
+        withVersion.push_back('V'); withVersion.push_back('E'); withVersion.push_back('R'); withVersion.push_back('1');
+        // Program segment 1 as Ps5VersionSegment at offset 516 (after segment 0 at 512..515)
+        Write(withVersion, elf + 120, 0x6fffff01, 4);
+        Write(withVersion, elf + 120 + 8, 516, 8); // offset in output ELF
+        Write(withVersion, elf + 120 + 32, 4, 8); // size = 4
+        const auto unwrappedVer = Relinker::UnwrapSelf(withVersion);
+        Require(unwrappedVer.size() >= 520);
+        Require(unwrappedVer[516] == 'V' && unwrappedVer[519] == '1');
+    }
+
+    // Test conflicting overlapping segment throws error
+    {
+        auto conflicting = Fixture();
+        // Add a 2nd segment entry that writes conflicting bytes to the same range
+        conflicting.insert(conflicting.begin() + 64, 32, 0);
+        Write(conflicting, 24, 2, 2); // 2 segments
+        Write(conflicting, 32, (1ull << 20) | 0x800, 8);
+        Write(conflicting, 40, 256, 8); // file offset 256
+        Write(conflicting, 48, 4, 8);
+        Write(conflicting, 56, 4, 8);
+        Write(conflicting, 64, (1ull << 20) | 0x800, 8);
+        Write(conflicting, 72, 256 + 32, 8); // points to different data
+        Write(conflicting, 80, 4, 8);
+        Write(conflicting, 88, 4, 8);
+        Reject(std::move(conflicting), "Conflicting overlapping SELF segment data");
+    }
 }

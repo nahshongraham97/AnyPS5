@@ -14,6 +14,7 @@
 namespace Relinker {
 
 std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path& inputPath, const std::filesystem::path& outputPath, Domain::SysVDynamicSection& dynamic, const bool windows, const bool toIntel, ISyscallScanner& syscallScanner, const bool lazyBinding, const std::string& runPath, const std::set<std::string>& excludedModules) const {
+    const auto root = std::filesystem::absolute(inputPath).parent_path();
     auto singular = root / "sce_module";
     auto plural = root / "sce_modules";
     auto prx = root / "prx";
@@ -276,7 +277,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
             output = Elfpatcher::GuestModuleWriter().WriteLinux(image, needed, guestRunPath);
         }
         dynamic.GuestModules.push_back(std::move(runtime));
-        artifacts.push_back({target, std::move(output)});
+        artifacts.push_back(GuestArtifact{target, std::move(output)});
     }
     return artifacts;
 }

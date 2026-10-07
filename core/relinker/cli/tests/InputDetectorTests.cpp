@@ -172,6 +172,51 @@ int main() {
         TEST_ASSERT(res.ResolvedExecutablePath == ebootInApp);
     }
 
+    // 10. Retail package with .fpkg extension: must NOT equate extension with plaintext archive
+    {
+        const auto retailNamedFpkg = tempDir / "fake_named_retail.fpkg";
+        WriteFile(retailNamedFpkg, MakePkg(0x00000001, "EP4350-CUSA00001_00-0000000000000000", 1024 * 1024));
+        auto res = Relinker::InputDetector::Detect(retailNamedFpkg);
+        TEST_ASSERT(res.Format == Relinker::InputFormat::PackageContainer);
+        TEST_ASSERT(res.PkgType == Relinker::PackageType::Retail);
+        TEST_ASSERT(res.IsEncryptedOrProtected);
+    }
+
+    // 11. Debug / No DRM package recognized via drm_type == 0xF
+    {
+        const auto debugPkg = tempDir / "debug.pkg";
+        auto bytes = MakePkg(0x00000000, "EP4350-CUSA00001_00-0000000000000000", 1024 * 1024);
+        // Set drm_type at offset 0x64 to 0xF (No DRM / Debug)
+        bytes[0x67] = 0x0f;
+        WriteFile(debugPkg, bytes);
+        auto res = Relinker::InputDetector::Detect(debugPkg);
+        TEST_ASSERT(res.Format == Relinker::InputFormat::PackageContainer);
+        TEST_ASSERT(res.PkgType == Relinker::PackageType::FakePkg);
+        TEST_ASSERT(!res.IsEncryptedOrProtected);
+    }
+
+    // 12. Truncated SELF (< 32 bytes)
+    {
+        const auto truncSelf = tempDir / "trunc.self";
+        std::vector<std::uint8_t> bytes(20, 0);
+        bytes[0] = 0x4f; bytes[1] = 0x15; bytes[2] = 0x3d; bytes[3] = 0x1d;
+        WriteFile(truncSelf, bytes);
+        auto res = Relinker::InputDetector::Detect(truncSelf);
+        TEST_ASSERT(res.IsEncryptedOrProtected);
+        TEST_ASSERT(res.DiagnosticMessage.find("Truncated") != std::string::npos);
+    }
+
+    // 13. Unsupported SELF endianness
+    {
+        const auto badEndianSelf = tempDir / "bad_endian.self";
+        auto bytes = MakePlaintextSelf(0x1d3d154f);
+        bytes[6] = 2; // Big-endian (unsupported)
+        WriteFile(badEndianSelf, bytes);
+        auto res = Relinker::InputDetector::Detect(badEndianSelf);
+        TEST_ASSERT(res.IsEncryptedOrProtected);
+        TEST_ASSERT(res.DiagnosticMessage.find("endianness") != std::string::npos);
+    }
+
     std::filesystem::remove_all(tempDir);
     std::cout << "All InputDetector tests passed!\n";
     return 0;

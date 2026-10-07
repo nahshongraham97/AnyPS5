@@ -92,6 +92,48 @@ int main() {
         TEST_ASSERT(result.ResourceFilesCount >= 3);
     }
 
+    // 4. Missing executable throws descriptive error
+    {
+        const auto emptyApp = tempDir / "empty_app";
+        std::filesystem::create_directories(emptyApp / "data");
+        WriteFile(emptyApp / "data" / "file.txt", "data");
+        bool caught = false;
+        try {
+            Relinker::PackageStaging::StageExtractedApp(emptyApp, tempDir / "out_empty");
+        } catch (const Domain::RelinkerException& e) {
+            caught = true;
+            const std::string msg = e.what();
+            TEST_ASSERT(msg.find("does not contain eboot.bin") != std::string::npos);
+        }
+        TEST_ASSERT(caught);
+    }
+
+    // 5. Retail PKG staging with lawfully supplied ANYPS5_IMAGE_KEY env var proceeds past key validation
+    {
+        Relinker::DetectionResult detection;
+        detection.Format = Relinker::InputFormat::PackageContainer;
+        detection.PkgType = Relinker::PackageType::Retail;
+        detection.ContentId = "EP4350-PPSA00001_00-0000000000000000";
+        detection.IsEncryptedOrProtected = true;
+
+        Relinker::PackageStagingOptions opts;
+        opts.PackagePath = tempDir / "retail2.pkg";
+        opts.ImageKey = ""; // Empty on options, will test environment variable
+        _putenv("ANYPS5_IMAGE_KEY=0123456789abcdef0123456789abcdef");
+
+        bool caught = false;
+        try {
+            Relinker::PackageStaging::StagePackage(opts, detection);
+        } catch (const Domain::RelinkerException& e) {
+            caught = true;
+            const std::string msg = e.what();
+            // Should pass key validation and fail on extractor command
+            TEST_ASSERT(msg.find("requires an external extractor") != std::string::npos);
+        }
+        TEST_ASSERT(caught);
+        _putenv("ANYPS5_IMAGE_KEY=");
+    }
+
     std::filesystem::remove_all(tempDir);
     std::cout << "All PackageStaging tests passed!\n";
     return 0;

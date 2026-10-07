@@ -79,9 +79,12 @@ int main(const int argc, char* argv[]) {
                 throw Domain::RelinkerException(detection.DiagnosticMessage);
             }
             const auto parentDir = resolvedExecutable.parent_path();
-            if (std::filesystem::exists(parentDir / "sce_sys")) {
-                auto staged = Relinker::PackageStaging::StageExtractedApp(parentDir, std::filesystem::path(absPath).parent_path(), resolvedExecutable);
+            const auto outDir = std::filesystem::path(absPath).parent_path();
+            if (std::filesystem::exists(parentDir / "sce_sys") && !outDir.empty() && outDir.lexically_normal() != parentDir.lexically_normal()) {
+                auto staged = Relinker::PackageStaging::StageExtractedApp(parentDir, outDir, resolvedExecutable);
                 stagingApp0 = staged.App0Directory;
+            } else {
+                stagingApp0 = parentDir;
             }
         } else {
             throw Domain::RelinkerException(detection.DiagnosticMessage.empty() ? "Unrecognized input format" : detection.DiagnosticMessage);

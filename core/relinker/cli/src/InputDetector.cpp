@@ -195,7 +195,8 @@ DetectionResult InputDetector::Detect(const std::filesystem::path& path) {
                 result.Platform = TargetPlatform::Ps5;
             }
 
-            const bool isFake = ((pkgType & 0x80000000u) != 0) || (pkgType == 2);
+            const std::uint32_t drmType = (header.size() >= 0x68) ? ReadU32BE(header, 0x64) : 0;
+            const bool isFake = ((pkgType & 0x80000000u) != 0) || (pkgType == 2) || (drmType == 0xFu);
             result.PkgType = isFake ? PackageType::FakePkg : PackageType::Retail;
 
             if (result.PkgType == PackageType::Retail) {

@@ -31,7 +31,15 @@ void CopyDirectoryRecursive(const std::filesystem::path& source, const std::file
 } // namespace
 
 StagedPackageResult PackageStaging::StagePackage(const PackageStagingOptions& options, const DetectionResult& detection) {
-    if (detection.PkgType == PackageType::Retail && options.ImageKey.empty()) {
+    std::string imageKey = options.ImageKey;
+    if (imageKey.empty()) {
+        const char* envKey = std::getenv("ANYPS5_IMAGE_KEY");
+        if (envKey && *envKey) {
+            imageKey = envKey;
+        }
+    }
+
+    if (detection.PkgType == PackageType::Retail && imageKey.empty()) {
         throw Domain::RelinkerException(
             "Package is protected retail content (Content ID: " +
             (detection.ContentId.empty() ? "Unknown" : detection.ContentId) +
@@ -65,13 +73,16 @@ StagedPackageResult PackageStaging::StagePackage(const PackageStagingOptions& op
     if (!options.Passcode.empty()) {
         cmd += " --passcode \"" + options.Passcode + "\"";
     }
-    if (!options.ImageKey.empty()) {
-        cmd += " --image-key \"" + options.ImageKey + "\"";
+    if (!imageKey.empty()) {
+        cmd += " --image-key \"" + imageKey + "\"";
     }
 
     std::cout << "Executing package extractor for " << options.PackagePath.filename().string() << " into " << app0Target.string() << '\n';
 
     const int exitCode = std::system(cmd.c_str());
+    if (!imageKey.empty()) {
+        imageKey.replace(0, imageKey.size(), imageKey.size(), '\0');
+    }
     if (exitCode != 0) {
         throw Domain::RelinkerException("Package extractor failed with exit code " + std::to_string(exitCode));
     }

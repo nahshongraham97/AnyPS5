@@ -164,13 +164,6 @@ int APS5_VABI sceUserServiceGetPlatformPrivacyWs1(int32_t user_id, int32_t* valu
     return 0;
 }
 
-int APS5_VABI sceUserServiceGetForegroundUser(int* user_id) {
- if (user_id == nullptr) {
-  return USER_SERVICE_ERROR_INVALID_ARGUMENT;
- }
- *user_id = USER_SERVICE_INITIAL_USER_ID;
- return USER_SERVICE_OK;
-}
 
 int APS5_VABI sceUserServiceGetRegisteredUserIdList(UserServiceRegisteredUserIdList* user_id_list) {
  if (user_id_list == nullptr) {

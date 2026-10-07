@@ -27,7 +27,13 @@ std::uint64_t Read(const std::vector<std::uint8_t>& bytes, std::uint64_t offset,
     return value;
 }
 
-struct Program { std::uint32_t type; std::uint64_t offset, size; };
+struct Program {
+    std::uint32_t type;
+    std::uint64_t offset;
+    std::uint64_t vaddr;
+    std::uint64_t size;
+    std::uint64_t memsz;
+};
 struct Segment { std::uint64_t flags, offset, size, decodedSize; };
 }
 
@@ -62,10 +68,12 @@ std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
         const auto at = elfOffset + phoff + index * phentsize;
         const auto type = static_cast<std::uint32_t>(Read(source, at, 4));
         const auto offset = Read(source, at + 8, 8);
+        const auto vaddr = Read(source, at + 16, 8);
         const auto size = Read(source, at + 32, 8);
+        const auto memsz = Read(source, at + 40, 8);
         if (offset > MaxReconstructedSize || size > MaxReconstructedSize - offset)
             throw std::runtime_error("SELF ELF program segment exceeds the reconstruction limit");
-        programs.push_back({type, offset, size});
+        programs.push_back({type, offset, vaddr, size, memsz});
         outputSize = std::max(outputSize, offset + size);
     }
     if (outputSize > MaxReconstructedSize)
@@ -100,13 +108,19 @@ std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
     std::fill(elf.begin() + 58, elf.begin() + 64, 0);
     // A version segment can be stored after the logical end of a SELF.
     const auto fileSize = Read(source, 16, 8);
-    for (const auto& program : programs)
-        if (program.type == Ps5VersionSegment && program.size &&
-            Fits(source, fileSize, program.size))
-            copy(program.offset, fileSize, program.size);
+    for (const auto& program : programs) {
+        if (program.type == Ps5VersionSegment && program.size && fileSize <= source.size()) {
+            const auto available = std::min<std::uint64_t>(program.size, source.size() - fileSize);
+            if (available > 0) copy(program.offset, fileSize, available);
+            for (std::uint64_t i = available; i < program.size; ++i) {
+                covered[static_cast<std::size_t>(program.offset + i)] = 1;
+            }
+        }
+    }
     for (const auto& segment : segments) {
         const auto id = (segment.flags >> 20) & 0xffff;
         if (id >= programs.size() || !programs[id].size) continue;
+        if (programs[id].type == Ps5VersionSegment) continue;
         // Entries without HasBlocks commonly describe signatures or digests,
         // not program bytes. Retain the older plain-entry layout only when
         // its stored and decoded sizes match the entire program segment.
@@ -127,6 +141,9 @@ std::vector<std::uint8_t> UnwrapSelf(std::vector<std::uint8_t> source) {
     }
     for (std::size_t index = 0; index < programs.size(); ++index) {
         const auto& program = programs[index];
+        if (program.type == 4 && program.vaddr == 0 && program.memsz == 0) {
+            continue;
+        }
         if (!std::all_of(covered.begin() + static_cast<std::ptrdiff_t>(program.offset),
                          covered.begin() + static_cast<std::ptrdiff_t>(program.offset + program.size),
                          [](std::uint8_t value) { return value != 0; }))

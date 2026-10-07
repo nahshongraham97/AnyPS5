@@ -275,7 +275,6 @@ if(BUILD_TESTING)
         set_tests_properties(savedata_memory_metadata PROPERTIES
             ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceSaveData.native>")
     endif()
-    endif()
     add_test_executable(savedata_memory_growth_tests tests/SaveDataMemoryGrowth.cpp)
     target_include_directories(savedata_memory_growth_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(savedata_memory_growth_tests PRIVATE libSceSaveData.native)

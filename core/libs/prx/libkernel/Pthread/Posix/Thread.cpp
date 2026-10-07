@@ -112,10 +112,4 @@ void APS5_VABI pthread_testcancel_nid_postfix(void) {
 void APS5_VABI pthread_yield_nid_postfix(void) {
     std::this_thread::yield();
 }
-
-unsigned int APS5_VABI sleep_nid_postfix(unsigned int seconds) {
-    std::this_thread::sleep_for(std::chrono::seconds(seconds));
-    return 0;
-}
-
 }
