@@ -6,6 +6,8 @@
 #include <cerrno>
 #include "../include/Pthread.hpp"
 #include "Common.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
+#include <chrono>
 #include <thread>
 
 extern "C" {
@@ -17,6 +19,7 @@ int APS5_VABI scePthreadRename(Pthread thread, const char* name);
 Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadSetcancelstate(int state, int* old_state);
 int APS5_VABI scePthreadSetcanceltype(int type, int* old_type);
+void APS5_VABI scePthreadTestcancel();
 int APS5_VABI scePthreadSetprio(Pthread thread, int prio);
 int APS5_VABI scePthreadGetprio(Pthread thread, int* prio);
 }
@@ -39,6 +42,18 @@ int APS5_VABI pthread_detach_nid_postfix(Pthread thread) {
 
 void APS5_VABI pthread_exit_nid_postfix(void* value) {
     scePthreadExit(value);
+}
+
+int APS5_VABI scePthreadGetschedparam(Pthread thread, int* policy, KernelSchedParam* param) {
+    if (!policy || !param) return SCE_KERNEL_ERROR_EINVAL;
+    *policy = GUEST_SCHED_FIFO;
+    return scePthreadGetprio(thread, &param->sched_priority);
+}
+
+int APS5_VABI scePthreadSetschedparam(Pthread thread, int policy, const KernelSchedParam* param) {
+    (void)policy;
+    if (!param) return SCE_KERNEL_ERROR_EINVAL;
+    return scePthreadSetprio(thread, param->sched_priority);
 }
 
 int APS5_VABI pthread_getschedparam_nid_postfix(Pthread thread, int* policy, KernelSchedParam* param) {
@@ -90,8 +105,17 @@ int APS5_VABI pthread_setschedparam_nid_postfix(Pthread thread, int policy, cons
     return PosixThread::ToErrno(scePthreadSetprio(thread, param->sched_priority));
 }
 
+void APS5_VABI pthread_testcancel_nid_postfix(void) {
+    scePthreadTestcancel();
+}
+
 void APS5_VABI pthread_yield_nid_postfix(void) {
     std::this_thread::yield();
+}
+
+unsigned int APS5_VABI sleep_nid_postfix(unsigned int seconds) {
+    std::this_thread::sleep_for(std::chrono::seconds(seconds));
+    return 0;
 }
 
 }

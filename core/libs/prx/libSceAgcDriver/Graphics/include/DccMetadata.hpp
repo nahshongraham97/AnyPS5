@@ -8,6 +8,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/GuestTextureResource.hpp"
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace AgcDriver::Graphics {
@@ -21,6 +22,15 @@ struct Context;
 enum class DccKeys { Uncompressed, Clear0000, Clear0001, Clear1110, Clear1111, ClearRegister, Mixed, Unreadable };
 
 const char* DccKeysName(DccKeys keys);
+std::size_t DccKeyBytes(std::uint64_t surfaceBytes);
+
+template<typename ReadFollowed, typename ReadNamed>
+bool KeysServeSurface(std::uint64_t followedDcc, DccKeys uploaded, DccKeys filled, std::uint64_t namedDcc, ReadFollowed&& readFollowed, ReadNamed&& readNamed) {
+    if (namedDcc == 0 || namedDcc == followedDcc) return true;
+    if (uploaded != DccKeys::Uncompressed || filled != DccKeys::Uncompressed) return false;
+    if (followedDcc != 0 && readFollowed() != DccKeys::Uncompressed) return false;
+    return readNamed() == DccKeys::Uncompressed;
+}
 // The keys covering a surface of `surfaceBytes`, when they all agree.
 DccKeys ReadDccKeys(std::uint64_t metaAddress, std::uint64_t surfaceBytes);
 bool IsDccClear(DccKeys keys);
@@ -73,6 +83,7 @@ DccKeyProofCounts KeyProofCounts();
 // A surface's texels as a read sees them: the guest bytes, or the clear value of fast-cleared keys.
 void ReadTextureSurface(const GuestTextureResource& resource, DccKeys keys, std::span<std::byte> bytes);
 void NoteKeysFillOnGpu(std::uint64_t begin, std::size_t count, DccKeys keys);
+std::optional<DccKeys> WaitForKeyWriters(const GuestTextureResource& resource, std::uint64_t guestBytes);
 
 }
 
