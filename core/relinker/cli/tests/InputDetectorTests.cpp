@@ -217,6 +217,21 @@ int main() {
         TEST_ASSERT(res.DiagnosticMessage.find("endianness") != std::string::npos);
     }
 
+    {
+        const auto path = tempDir / "UP9000-PPSA28997_00-SONSOFSPARTAPS50.pkg";
+        std::vector<std::uint8_t> bytes(256);
+        bytes[0] = 0x7f; bytes[1] = 'F'; bytes[2] = 'I'; bytes[3] = 'H';
+        bytes[4] = 1; bytes[6] = 3;
+        WriteFile(path, bytes);
+        std::filesystem::resize_file(path, 9ULL * 1024 * 1024 * 1024);
+        auto res = Relinker::InputDetector::Detect(path);
+        TEST_ASSERT(res.Format == Relinker::InputFormat::PackageContainer);
+        TEST_ASSERT(res.Platform == Relinker::TargetPlatform::Ps5);
+        TEST_ASSERT(res.PkgType == Relinker::PackageType::Unknown);
+        TEST_ASSERT(res.DeclaredSize == 9ULL * 1024 * 1024 * 1024);
+        TEST_ASSERT(res.DiagnosticMessage.find("Finalized") != std::string::npos);
+    }
+
     std::filesystem::remove_all(tempDir);
     std::cout << "All InputDetector tests passed!\n";
     return 0;

@@ -3,10 +3,85 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <stdexcept>
+#if defined(_WIN32)
+#include <windows.h>
+#include <vector>
+#else
+#include <cerrno>
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
+#endif
 
 namespace Relinker {
 
 namespace {
+
+#if defined(_WIN32)
+std::wstring QuoteWindowsArgument(const std::wstring& argument) {
+    std::wstring quoted = L"\"";
+    std::size_t slashes = 0;
+    for (const wchar_t ch : argument) {
+        if (ch == L'\\') {
+            ++slashes;
+        } else if (ch == L'"') {
+            quoted.append(slashes * 2 + 1, L'\\');
+            quoted += ch;
+            slashes = 0;
+        } else {
+            quoted.append(slashes, L'\\');
+            quoted += ch;
+            slashes = 0;
+        }
+    }
+    quoted.append(slashes * 2, L'\\');
+    quoted += L'"';
+    return quoted;
+}
+#endif
+
+int InvokeExtractor(const std::filesystem::path& executable, const std::filesystem::path& input,
+                    const std::filesystem::path& output) {
+    if (!std::filesystem::is_regular_file(executable))
+        throw Domain::RelinkerException("Package extractor is not an executable file: " + executable.string());
+#if defined(_WIN32)
+    const auto exe = std::filesystem::absolute(executable).wstring();
+    const auto package = input.wstring();
+    const auto destination = output.wstring();
+    auto commandLine = QuoteWindowsArgument(exe) + L" --input " + QuoteWindowsArgument(package) +
+                       L" --output " + QuoteWindowsArgument(destination);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                        &startup, &process))
+        throw Domain::RelinkerException("Could not start package extractor: " + executable.string());
+    const DWORD waitResult = WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    const BOOL gotExitCode = GetExitCodeProcess(process.hProcess, &exitCode);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    if (waitResult != WAIT_OBJECT_0 || !gotExitCode)
+        throw Domain::RelinkerException("Could not wait for package extractor: " + executable.string());
+    return static_cast<int>(exitCode);
+#else
+    const auto exe = std::filesystem::absolute(executable).string();
+    const auto package = input.string();
+    const auto destination = output.string();
+    char* const arguments[] = {const_cast<char*>(exe.c_str()), const_cast<char*>("--input"),
+                               const_cast<char*>(package.c_str()), const_cast<char*>("--output"),
+                               const_cast<char*>(destination.c_str()), nullptr};
+    pid_t pid = 0;
+    const auto started = posix_spawn(&pid, exe.c_str(), nullptr, nullptr, arguments, environ);
+    if (started != 0) throw Domain::RelinkerException("Could not start package extractor: " + exe);
+    int status = 0;
+    while (waitpid(pid, &status, 0) == -1) {
+        if (errno != EINTR) throw Domain::RelinkerException("Could not wait for package extractor: " + exe);
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+#endif
+}
 
 void CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination, std::size_t& fileCount) {
     std::error_code ec;
@@ -40,6 +115,8 @@ void CopyDirectoryRecursive(const std::filesystem::path& source, const std::file
 } // namespace
 
 StagedPackageResult PackageStaging::StagePackage(const PackageStagingOptions& options, const DetectionResult& detection) {
+    if (!options.Passcode.empty() || !options.ImageKey.empty())
+        throw Domain::RelinkerException("Passcodes and image keys must be provided through ANYPS5_PASSCODE or ANYPS5_IMAGE_KEY in the extractor environment, not command-line arguments");
     std::string imageKey = options.ImageKey;
     if (imageKey.empty()) {
         const char* envKey = std::getenv("ANYPS5_IMAGE_KEY");
@@ -52,14 +129,14 @@ StagedPackageResult PackageStaging::StagePackage(const PackageStagingOptions& op
         throw Domain::RelinkerException(
             "Package is protected retail content (Content ID: " +
             (detection.ContentId.empty() ? "Unknown" : detection.ContentId) +
-            "). Decryption requires a lawfully supplied image key (--image-key <hex>). Retail packages cannot be extracted without valid keys."
+            "). Decryption requires a lawfully supplied ANYPS5_IMAGE_KEY environment value. Retail packages cannot be extracted without valid keys."
         );
     }
 
     if (options.ExtractorCommand.empty()) {
         throw Domain::RelinkerException(
             "Package container (" + options.PackagePath.filename().string() +
-            ") requires an external extractor. Specify --extractor <cmd> (with --input, --output, --passcode, --image-key contract) or supply an extracted app directory."
+            ") requires an external extractor executable. Specify --extractor <path> (with --input and --output arguments; secrets inherited from the environment) or supply an extracted app directory."
         );
     }
 
@@ -73,22 +150,13 @@ StagedPackageResult PackageStaging::StagePackage(const PackageStagingOptions& op
     }
 
     const std::filesystem::path app0Target = stagingRoot / "app0";
+    if (std::filesystem::exists(app0Target) && !std::filesystem::is_empty(app0Target))
+        throw Domain::RelinkerException("Package staging app0 directory is not empty: " + app0Target.string());
     std::filesystem::create_directories(app0Target);
-
-    std::string cmd = options.ExtractorCommand;
-    cmd += " --input \"" + options.PackagePath.string() + "\"";
-    cmd += " --output \"" + app0Target.string() + "\"";
-
-    if (!options.Passcode.empty()) {
-        cmd += " --passcode \"" + options.Passcode + "\"";
-    }
-    if (!imageKey.empty()) {
-        cmd += " --image-key \"" + imageKey + "\"";
-    }
 
     std::cout << "Executing package extractor for " << options.PackagePath.filename().string() << " into " << app0Target.string() << '\n';
 
-    const int exitCode = std::system(cmd.c_str());
+    const int exitCode = InvokeExtractor(options.ExtractorCommand, options.PackagePath, app0Target);
     if (!imageKey.empty()) {
         imageKey.replace(0, imageKey.size(), imageKey.size(), '\0');
     }

@@ -1,5 +1,6 @@
 #include <PackageStaging.hpp>
 #include <domain/Types.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -17,9 +18,14 @@ void WriteFile(const std::filesystem::path& path, const std::string& content) {
 
 } // namespace
 
-int main() {
-    const auto tempDir = std::filesystem::temp_directory_path() / "anyps5_test_staging";
-    std::filesystem::remove_all(tempDir);
+int main(int argc, char* argv[]) {
+    if (argc == 5 && std::string(argv[1]) == "--input" && std::string(argv[3]) == "--output") {
+        WriteFile(std::filesystem::path(argv[4]) / "eboot.bin", "MOCK_EBOOT_CONTENT");
+        return 0;
+    }
+    const auto tempDir = std::filesystem::temp_directory_path() /
+        ("anyps5_test_staging_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(tempDir);
 
     // 1. Retail PKG staging without lawfully supplied key throws descriptive error
@@ -41,7 +47,7 @@ int main() {
             caught = true;
             const std::string msg = e.what();
             TEST_ASSERT(msg.find("protected retail content") != std::string::npos);
-            TEST_ASSERT(msg.find("--image-key") != std::string::npos);
+            TEST_ASSERT(msg.find("ANYPS5_IMAGE_KEY") != std::string::npos);
         }
         TEST_ASSERT(caught);
     }
@@ -119,7 +125,11 @@ int main() {
         Relinker::PackageStagingOptions opts;
         opts.PackagePath = tempDir / "retail2.pkg";
         opts.ImageKey = ""; // Empty on options, will test environment variable
+#ifdef _WIN32
         _putenv("ANYPS5_IMAGE_KEY=0123456789abcdef0123456789abcdef");
+#else
+        setenv("ANYPS5_IMAGE_KEY", "0123456789abcdef0123456789abcdef", 1);
+#endif
 
         bool caught = false;
         try {
@@ -131,10 +141,46 @@ int main() {
             TEST_ASSERT(msg.find("requires an external extractor") != std::string::npos);
         }
         TEST_ASSERT(caught);
+#ifdef _WIN32
         _putenv("ANYPS5_IMAGE_KEY=");
+#else
+        unsetenv("ANYPS5_IMAGE_KEY");
+#endif
     }
 
-    std::filesystem::remove_all(tempDir);
+    {
+        Relinker::DetectionResult detection;
+        detection.Format = Relinker::InputFormat::PackageContainer;
+        detection.PkgType = Relinker::PackageType::Unknown;
+        const auto extractor = tempDir / (std::string("extract & test") + std::filesystem::path(argv[0]).extension().string());
+        std::filesystem::copy_file(argv[0], extractor, std::filesystem::copy_options::overwrite_existing);
+        const auto package = tempDir / "sample & name.pkg";
+        WriteFile(package, "MOCK_PACKAGE_CONTENT");
+        Relinker::PackageStagingOptions opts;
+        opts.PackagePath = package;
+        opts.StagingDirectory = tempDir / "extract result";
+        opts.OutputDirectory = tempDir / "output package";
+        opts.ExtractorCommand = extractor.string();
+        const auto result = Relinker::PackageStaging::StagePackage(opts, detection);
+        TEST_ASSERT(std::filesystem::exists(result.EbootPath));
+        TEST_ASSERT(result.EbootPath == opts.OutputDirectory / "app0" / "eboot.bin");
+    }
+
+    {
+        Relinker::DetectionResult detection;
+        detection.PkgType = Relinker::PackageType::Unknown;
+        Relinker::PackageStagingOptions opts;
+        opts.Passcode = "secret";
+        bool caught = false;
+        try { Relinker::PackageStaging::StagePackage(opts, detection); }
+        catch (const Domain::RelinkerException& error) {
+            caught = std::string(error.what()).find("ANYPS5_PASSCODE") != std::string::npos;
+        }
+        TEST_ASSERT(caught);
+    }
+
+    std::error_code cleanupError;
+    std::filesystem::remove_all(tempDir, cleanupError);
     std::cout << "All PackageStaging tests passed!\n";
     return 0;
 }
