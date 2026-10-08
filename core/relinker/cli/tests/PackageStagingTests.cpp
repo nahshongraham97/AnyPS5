@@ -1,5 +1,6 @@
 #include <PackageStaging.hpp>
 #include <domain/Types.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -22,8 +23,9 @@ int main(int argc, char* argv[]) {
         WriteFile(std::filesystem::path(argv[4]) / "eboot.bin", "MOCK_EBOOT_CONTENT");
         return 0;
     }
-    const auto tempDir = std::filesystem::temp_directory_path() / "anyps5_test_staging";
-    std::filesystem::remove_all(tempDir);
+    const auto tempDir = std::filesystem::temp_directory_path() /
+        ("anyps5_test_staging_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(tempDir);
 
     // 1. Retail PKG staging without lawfully supplied key throws descriptive error
@@ -177,7 +179,8 @@ int main(int argc, char* argv[]) {
         TEST_ASSERT(caught);
     }
 
-    std::filesystem::remove_all(tempDir);
+    std::error_code cleanupError;
+    std::filesystem::remove_all(tempDir, cleanupError);
     std::cout << "All PackageStaging tests passed!\n";
     return 0;
 }
