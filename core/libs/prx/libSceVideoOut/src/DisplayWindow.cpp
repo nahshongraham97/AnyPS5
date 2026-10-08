@@ -5,8 +5,10 @@
 #include "prx/libkernel/Time/include/Time.hpp"
 #include "SDL_vulkan.h"
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #ifdef _WIN32
 #include "SDL_syswm.h"
@@ -52,6 +54,19 @@ void DisplayWindow::create(std::uint32_t sourceWidth, std::uint32_t sourceHeight
     require(window != nullptr, SDL_GetError());
     SDL_SetWindowMinimumSize(window, static_cast<int>(DisplayWindowMinimumWidth), static_cast<int>(DisplayWindowMinimumHeight));
     installSubclass();
+#ifdef _WIN32
+    const auto cmdLine = ::GetCommandLineW();
+    const bool cliFullscreen = cmdLine != nullptr && (std::wcsstr(cmdLine, L"--fullscreen") != nullptr || std::wcsstr(cmdLine, L"-fullscreen") != nullptr);
+#else
+    const bool cliFullscreen = false;
+#endif
+    const auto* envFullscreen = std::getenv("APS5_FULLSCREEN");
+    if (cliFullscreen || envFullscreen != nullptr) {
+        const std::string_view mode = envFullscreen != nullptr ? envFullscreen : "";
+        const bool borderless = (mode == "borderless" || mode == "desktop");
+        const Uint32 fsFlag = borderless ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN;
+        SDL_SetWindowFullscreen(window, fsFlag);
+    }
 }
 
 void DisplayWindow::updateAspectRatio(std::uint32_t sourceWidth, std::uint32_t sourceHeight) {
