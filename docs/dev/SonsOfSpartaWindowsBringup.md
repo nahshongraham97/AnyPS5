@@ -488,15 +488,13 @@ architecturally resolved:
      `DB_STENCIL_CLEAR`, and write mask `0xff`. All covered samples receive the clear value while the
      draw's color output is preserved and written to the color attachment.
 
-2. **Frame pacing bottleneck (~20 FPS lock on Windows)**:
-   - **Root Cause**: An idle queue worker with completions pending waited on its condition variable
-     for 1 ms before each reap (`changed.wait_for(lock, std::chrono::milliseconds(1), ready)`). On
-     Windows with MinGW, `std::condition_variable::wait_for` uses `winpthreads`, which maps timed
-     waits to Windows timer interrupts (`GetTickCount64`) operating on a default 15.6 ms resolution.
-     Deferred end-of-pipe interrupts thus reached the guest thread ~15 ms late on every cycle, capping
-     the frame rate to 20–30 FPS.
-   - **Architectural Resolution (PR #1474)**: Replaced the condition variable timed wait on Windows
-     with `PollSleep()`, allowing the worker to reap completions with sub-millisecond precision.
+2. **Frame pacing analysis & QueueWorker behavior**:
+   - Upstream PR #1474 attempted to replace the queue worker condition variable wait with a Windows
+     `PollSleep()` loop. In live testing with *Sons of Sparta*, this caused extreme mutex lock contention
+     and thread starvation between the submission thread and the worker loop, collapsing frame rates down
+     to 0.8–7.5 FPS. PR #1474 was therefore reverted to retain proper condition variable signaling.
+   - Startup pipeline compilation was verified as the primary contributor to first-run frame drops when
+     the shader cache is empty; retaining the warm Vulkan pipeline cache prevents startup hitching.
 
 3. **Mutex destruction compliance (PR #1483)**:
    - `scePthreadMutexDestroy` now returns `SCE_KERNEL_ERROR_EBUSY` when destroying a locked mutex
