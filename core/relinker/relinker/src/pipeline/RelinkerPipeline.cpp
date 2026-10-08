@@ -313,8 +313,13 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
             // limit.  Keep the small set of main-image callbacks that guest
             // modules obtain through sceKernelDlsym(handle 0).  Add entries as
             // additional runtime lookup contracts are identified.
-            if (name == "ayuoL6Vjz2k" || name == "scriptingGetMem")
-                dynSection.RuntimeExports.push_back({std::move(name), value, size});
+            if (name == "ayuoL6Vjz2k" || name == "scriptingGetMem") {
+                dynSection.RuntimeExports.push_back({name, value, size});
+                if (name == "ayuoL6Vjz2k")
+                    dynSection.RuntimeExports.push_back({"scriptingGetMem", value, size});
+                else if (name == "scriptingGetMem")
+                    dynSection.RuntimeExports.push_back({"ayuoL6Vjz2k", value, size});
+            }
         }
     }
 

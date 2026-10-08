@@ -97,6 +97,7 @@ param(
     [string]$Backend = 'auto',
     [switch]$SkipBuild,
     [switch]$SkipPull,
+    [switch]$SkipRelink,
     [switch]$SkipSceModule,
     [switch]$Diagnostics,
     [switch]$Force,
@@ -227,18 +228,40 @@ if ($Force -and (Test-Path -LiteralPath $payloadRoot)) {
 }
 New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $librariesDir -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $payloadRoot 'app0') -Force | Out-Null
+$app0Dir = Join-Path $payloadRoot 'app0'
+New-Item -ItemType Directory -Path $app0Dir -Force | Out-Null
 
-# --windows makes the relinker emit a native PE executable. Without it the
-# output is a Linux ELF and Windows cannot start it.
-$relinkerArgs = @('--windows')
-if ($Diagnostics)     { $relinkerArgs += '--windows-diagnostics' }
-if ($SkipSceModule)   { $relinkerArgs += '--skip-sce-module' }
-$relinkerArgs += @($Eboot, $convertedExe)
+if ($CopyGameData) {
+    $gameDir = Split-Path -Parent $Eboot
+    $ebootLeaf = Split-Path -Leaf $Eboot
+    Get-ChildItem -LiteralPath $gameDir -Force | ForEach-Object {
+        if ($_.Name -eq $ebootLeaf) { return }
+        $dest = Join-Path $app0Dir $_.Name
+        if (-not (Test-Path -LiteralPath $dest)) {
+            if ($_.PSIsContainer -and ($_.Name -in @('Media', 'outer', 'cnt', 'si', 'fakelib', 'playgo-languages'))) {
+                try {
+                    New-Item -ItemType Junction -Path $dest -Target $_.FullName -Force | Out-Null
+                    Write-Info "Created directory junction for $($_.Name)"
+                } catch {
+                    Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force
+                }
+            }
+        }
+    }
+}
 
-Write-Info ("relinker " + ($relinkerArgs -join ' '))
-& $relinkerExe @relinkerArgs
-Assert-LastExit 'relinker'
+if (-not $SkipRelink) {
+    # --windows makes the relinker emit a native PE executable. Without it the
+    # output is a Linux ELF and Windows cannot start it.
+    $relinkerArgs = @('--windows')
+    if ($Diagnostics)     { $relinkerArgs += '--windows-diagnostics' }
+    if ($SkipSceModule)   { $relinkerArgs += '--skip-sce-module' }
+    $relinkerArgs += @($Eboot, $convertedExe)
+
+    Write-Info ("relinker " + ($relinkerArgs -join ' '))
+    & $relinkerExe @relinkerArgs
+    Assert-LastExit 'relinker'
+}
 
 if (-not (Test-Path -LiteralPath $convertedExe -PathType Leaf)) {
     throw "Relinker did not produce $convertedExe."
@@ -277,13 +300,16 @@ if (Test-Path -LiteralPath $WinLibs -PathType Container) {
 if ($CopyGameData) {
     $gameDir = Split-Path -Parent $Eboot
     $app0Dir = Join-Path $payloadRoot 'app0'
-    Write-Step "Copying game data into app0"
+    Write-Step "Mirroring remaining game data into app0"
     $ebootLeaf = Split-Path -Leaf $Eboot
     Get-ChildItem -LiteralPath $gameDir -Force | ForEach-Object {
         if ($_.Name -eq $ebootLeaf) { return }
-        Copy-Item -LiteralPath $_.FullName -Destination $app0Dir -Recurse -Force
+        $dest = Join-Path $app0Dir $_.Name
+        if (-not (Test-Path -LiteralPath $dest)) {
+            Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force
+        }
     }
-    Write-Info "Copied $(Split-Path -Leaf $gameDir) contents (minus $ebootLeaf) to $app0Dir"
+    Write-Info "Mirrored $(Split-Path -Leaf $gameDir) contents (minus $ebootLeaf) to $app0Dir"
 }
 
 # --- 4. Run -----------------------------------------------------------------

@@ -14,6 +14,17 @@ int APS5_VABI sceKernelDlsym(KernelModule, const char*, void**);
 int APS5_VABI _sceKernelRtldThreadAtexitIncrement_nid_postfix(const void*);
 int APS5_VABI _sceKernelRtldThreadAtexitDecrement_nid_postfix(const void*);
 }
+
+#ifdef _WIN32
+#define EXPORT_MAIN __declspec(dllexport)
+#else
+#define EXPORT_MAIN __attribute__((visibility("default")))
+#endif
+
+extern "C" {
+EXPORT_MAIN void MainExportedTestFunction() {}
+}
+
 static void Require(bool value) { if (!value) std::abort(); }
 template<typename TFunction>
 static bool ThrowsRuntimeError(TFunction function) {
@@ -43,12 +54,59 @@ int main(int argc, char** argv) {
     Require(sceKernelDlsym(1, "sceKernelDlsym", &resolved) == 0 && resolved != nullptr);
     resolved = nullptr;
     Require(sceKernelDlsym(0x2001, "sceKernelDlsym", &resolved) == 0 && resolved != nullptr);
-    resolved = reinterpret_cast<void*>(1);
     Require(sceKernelDlsym(1, "anyps5_missing_symbol", &resolved) != 0 && resolved == nullptr);
     Require(sceKernelDlsym(1, "sceKernelDlsym", nullptr) != 0);
     resolved = nullptr;
+    Require(sceKernelDlsym(0, "MainExportedTestFunction", &resolved) == 0 && resolved != nullptr);
+
+    // Verify scriptingGetMem resolution and execution via sceKernelDlsym handle 0
+    resolved = nullptr;
+    Require(sceKernelDlsym(0, "scriptingGetMem", &resolved) == 0 && resolved != nullptr);
+    using ScriptingGetMemFn = void* (APS5_VABI *)(std::uint64_t, std::uint64_t);
+    using ScriptingFreeMemFn = void (APS5_VABI *)(void*);
+    auto getMem = reinterpret_cast<ScriptingGetMemFn>(resolved);
+    void* allocated = getMem(0x1000, 0x40000);
+    Require(allocated != nullptr);
+    Require((reinterpret_cast<std::uintptr_t>(allocated) & 0xfff) == 0);
+
+    // Verify scriptingFreeMem
+    void* freeResolved = nullptr;
+    Require(sceKernelDlsym(0, "scriptingFreeMem", &freeResolved) == 0 && freeResolved != nullptr);
+    auto freeMem = reinterpret_cast<ScriptingFreeMemFn>(freeResolved);
+    freeMem(allocated);
+
+    // Verify NID resolution for ayuoL6Vjz2k (NID of scriptingGetMem)
+    void* nidResolved = nullptr;
+    Require(sceKernelDlsym(0, "ayuoL6Vjz2k", &nidResolved) == 0 && nidResolved == resolved);
+
+    resolved = reinterpret_cast<void*>(1);
+    Require(sceKernelDlsym(0, "nonexistent_main_symbol", &resolved) != 0 && resolved == nullptr);
+    Require(sceKernelDlsym(0, "MainExportedTestFunction", nullptr) != 0);
+    resolved = nullptr;
     Require(sceKernelDlsym(static_cast<KernelModule>(reinterpret_cast<std::uintptr_t>(module)),
                            "GuestModuleAdd", &resolved) == 0 && resolved == reinterpret_cast<void*>(add));
+
+    const auto streamingAssets = std::filesystem::path("app0") / "Media" / "StreamingAssets";
+    std::filesystem::create_directories(streamingAssets);
+    std::ofstream(streamingAssets / "Master.strings.bank", std::ios::binary).put('\0');
+    std::ofstream(streamingAssets / "Master.bank", std::ios::binary).put('\0');
+    resolved = nullptr;
+    Require(sceKernelDlsym(static_cast<KernelModule>(reinterpret_cast<std::uintptr_t>(module)),
+                           "FMOD_Studio_System_GetBus", &resolved) == 0 && resolved != nullptr);
+    using GetBus = int (APS5_VABI *)(void*, const char*, void**);
+    void* bus = nullptr;
+    Require(reinterpret_cast<GetBus>(resolved)(reinterpret_cast<void*>(0x1234), "bus:/Master Bus/Dialogue", &bus) == 0);
+    Require(bus == reinterpret_cast<void*>(0x4242));
+    void* loadCountAddress = nullptr;
+    Require(sceKernelDlsym(static_cast<KernelModule>(reinterpret_cast<std::uintptr_t>(module)),
+                           "GuestModuleFmodLoadCount", &loadCountAddress) == 0);
+    using LoadCount = int (APS5_VABI *)();
+    Require(reinterpret_cast<LoadCount>(loadCountAddress)() == 2);
+    std::filesystem::remove(streamingAssets / "Master.strings.bank");
+    std::filesystem::remove(streamingAssets / "Master.bank");
+    std::filesystem::remove(streamingAssets);
+    std::filesystem::remove(streamingAssets.parent_path());
+    std::filesystem::remove(streamingAssets.parent_path().parent_path());
     Require(dlsym_nid_postfix(reinterpret_cast<void*>(-2), "GuestModuleAdd") == reinterpret_cast<void*>(add));
 #ifndef _WIN32
     auto mul = reinterpret_cast<Add>(dlsym_nid_postfix(module, "GuestModuleMul"));

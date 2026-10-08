@@ -206,6 +206,19 @@ GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector
     if (tags.contains(13)) image.Fini = tags.at(13);
     if (image.Init != 0) mapped(image.Init, 1, 1);
     if (image.Fini != 0) mapped(image.Fini, 1, 1);
+    if (image.Init != 0) {
+        const auto initOffset = translate(image.Init, 1);
+        const auto searchEnd = std::min<std::uint64_t>(initOffset + 0x100, bytes.size() >= 16 ? bytes.size() - 16 : 0);
+        for (std::uint64_t i = initOffset; i < searchEnd; ++i) {
+            if (bytes[i] == 0x48 && bytes[i + 1] == 0x83 && bytes[i + 2] == 0x3d &&
+                bytes[i + 7] == 0x00 && bytes[i + 8] == 0x74 && bytes[i + 9] == 0x19 &&
+                bytes[i + 10] == 0x4c && bytes[i + 11] == 0x89 && bytes[i + 12] == 0xf7 &&
+                bytes[i + 13] == 0x48 && bytes[i + 14] == 0x89 && bytes[i + 15] == 0xde) {
+                bytes[i + 8] = 0xeb;
+                break;
+            }
+        }
+    }
     const auto readLifecycleArray = [&](std::uint64_t addressTag, std::uint64_t sizeTag, std::vector<std::uint64_t>& entries) {
         if (!tags.contains(addressTag) && !tags.contains(sizeTag)) return;
         if (!tags.contains(sizeTag) || (tags.at(sizeTag) != 0 && !tags.contains(addressTag))) fail("Incomplete guest lifecycle array");

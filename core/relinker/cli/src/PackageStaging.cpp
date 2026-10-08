@@ -9,21 +9,30 @@ namespace Relinker {
 namespace {
 
 void CopyDirectoryRecursive(const std::filesystem::path& source, const std::filesystem::path& destination, std::size_t& fileCount) {
-    if (!std::filesystem::exists(source)) return;
-    std::filesystem::create_directories(destination);
+    std::error_code ec;
+    if (!std::filesystem::exists(source, ec)) return;
+    if (std::filesystem::exists(destination, ec) && std::filesystem::equivalent(source, destination, ec)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(source, ec)) {
+            if (entry.is_regular_file()) ++fileCount;
+        }
+        return;
+    }
+    std::filesystem::create_directories(destination, ec);
 
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(source)) {
-        const auto relative = std::filesystem::relative(entry.path(), source);
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(source, ec)) {
+        const auto relative = std::filesystem::relative(entry.path(), source, ec);
         const auto target = destination / relative;
 
         if (entry.is_directory()) {
-            std::filesystem::create_directories(target);
+            std::filesystem::create_directories(target, ec);
         } else if (entry.is_regular_file()) {
-            if (!std::filesystem::exists(target) || !std::filesystem::equivalent(entry.path(), target)) {
-                std::filesystem::create_directories(target.parent_path());
-                std::filesystem::copy_file(entry.path(), target, std::filesystem::copy_options::overwrite_existing);
-                ++fileCount;
+            if (!std::filesystem::exists(target, ec) ||
+                (!std::filesystem::equivalent(entry.path(), target, ec) &&
+                 std::filesystem::file_size(entry.path(), ec) != std::filesystem::file_size(target, ec))) {
+                std::filesystem::create_directories(target.parent_path(), ec);
+                std::filesystem::copy_file(entry.path(), target, std::filesystem::copy_options::overwrite_existing, ec);
             }
+            ++fileCount;
         }
     }
 }
@@ -175,20 +184,36 @@ StagedPackageResult PackageStaging::StageExtractedApp(const std::filesystem::pat
                 const auto name = entry.path().filename().string();
                 if (name == "sce_sys" || name == "eboot.bin") continue;
                 if (entry.is_directory()) {
-                    CopyDirectoryRecursive(entry.path(), destApp0 / name, result.ResourceFilesCount);
+                    const auto targetDir = destApp0 / name;
+                    std::error_code ec;
+                    if (std::filesystem::exists(targetDir, ec) && std::filesystem::equivalent(entry.path(), targetDir, ec)) {
+                        for (const auto& subEntry : std::filesystem::recursive_directory_iterator(entry.path(), ec)) {
+                            if (subEntry.is_regular_file()) ++result.ResourceFilesCount;
+                        }
+                        continue;
+                    }
+                    CopyDirectoryRecursive(entry.path(), targetDir, result.ResourceFilesCount);
                 } else if (entry.is_regular_file()) {
                     const auto targetFile = destApp0 / name;
-                    if (!std::filesystem::exists(targetFile) || !std::filesystem::equivalent(entry.path(), targetFile)) {
-                        std::filesystem::copy_file(entry.path(), targetFile, std::filesystem::copy_options::overwrite_existing);
-                        ++result.ResourceFilesCount;
+                    std::error_code ec;
+                    if (!std::filesystem::exists(targetFile, ec) ||
+                        (!std::filesystem::equivalent(entry.path(), targetFile, ec) &&
+                         std::filesystem::file_size(entry.path(), ec) != std::filesystem::file_size(targetFile, ec))) {
+                        std::filesystem::copy_file(entry.path(), targetFile, std::filesystem::copy_options::overwrite_existing, ec);
                     }
+                    ++result.ResourceFilesCount;
                 }
             }
 
             result.App0Directory = destApp0;
             result.EbootPath = destApp0 / "eboot.bin";
-            if (std::filesystem::exists(sourceEboot) && (!std::filesystem::exists(result.EbootPath) || !std::filesystem::equivalent(sourceEboot, result.EbootPath))) {
-                std::filesystem::copy_file(sourceEboot, result.EbootPath, std::filesystem::copy_options::overwrite_existing);
+            if (std::filesystem::exists(sourceEboot)) {
+                std::error_code ec;
+                if (!std::filesystem::exists(result.EbootPath, ec) ||
+                    (!std::filesystem::equivalent(sourceEboot, result.EbootPath, ec) &&
+                     std::filesystem::file_size(sourceEboot, ec) != std::filesystem::file_size(result.EbootPath, ec))) {
+                    std::filesystem::copy_file(sourceEboot, result.EbootPath, std::filesystem::copy_options::overwrite_existing, ec);
+                }
             }
         }
     }

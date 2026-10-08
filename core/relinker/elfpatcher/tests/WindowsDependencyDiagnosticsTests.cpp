@@ -232,6 +232,15 @@ int main() {
         expectDiagnostic(runner, {"invalid or unsupported PE dependency metadata"});
         writeFile(root, {0, 1, 2});
         expectDiagnostic(runner, {"Windows API failed"});
+        {
+            const auto exportDll = directory / "test-export.dll";
+            createImage(exportDll, {}, "scriptingGetMem");
+            HMODULE hMod = LoadLibraryExW(exportDll.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+            if (!hMod) throw std::runtime_error("Failed to load test export image");
+            FARPROC proc = GetProcAddress(hMod, "scriptingGetMem");
+            FreeLibrary(hMod);
+            if (!proc) throw std::runtime_error("Failed to resolve exported symbol via GetProcAddress");
+        }
         std::cout << "Windows dependency machine-code tests passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -83,8 +84,13 @@ KernelModule APS5_VABI sceKernelLoadStartModule(const char* module_file_name, si
  (void)opt;
  if (res) *res = 0;
  if (!module_file_name) return static_cast<KernelModule>(SCE_KERNEL_ERROR_EFAULT);
+ std::fprintf(stderr, "[libkernel] sceKernelLoadStartModule('%s')\n", module_file_name);
  void* handle = dlopen_nid_postfix(module_file_name, kRtldNow);
- if (!handle) return static_cast<KernelModule>(SCE_KERNEL_ERROR_ENOENT);
+ if (!handle) {
+     std::fprintf(stderr, "[libkernel] sceKernelLoadStartModule('%s') failed: ENOENT\n", module_file_name);
+     return static_cast<KernelModule>(SCE_KERNEL_ERROR_ENOENT);
+ }
+ std::fprintf(stderr, "[libkernel] sceKernelLoadStartModule('%s') success -> handle=%p\n", module_file_name, handle);
  return static_cast<KernelModule>(reinterpret_cast<intptr_t>(handle));
 }
 

@@ -129,6 +129,10 @@ int APS5_VABI sceNpRegisterNpReachabilityStateCallback(void* callback, void* use
     return 0;
 }
 
+int APS5_VABI sceNpUnregisterNpReachabilityStateCallback(void) {
+    return 0;
+}
+
 int APS5_VABI sceNpRegisterPlusEventCallback(void* callback, void* userdata) {
     (void)userdata;
     if (!callback) return SCE_NP_ERROR_INVALID_ARGUMENT;

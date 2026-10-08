@@ -85,6 +85,34 @@ int APS5_VABI sceNpEntitlementAccessGetAddcontEntitlementInfoList(uint32_t servi
     return 0;
 }
 
+int APS5_VABI sceNpEntitlementAccessGetEntitlementKey(uint32_t service_label, const NpUnifiedEntitlementLabel* entitlement_label, void* key) {
+    (void)service_label;
+    if (!entitlement_label || !key) return SCE_NP_ENTITLEMENT_ACCESS_ERROR_PARAMETER;
+    std::memset(key, 0, 16);
+    for (const auto& addon : OwnedAddons()) {
+        if (std::strncmp(addon.entitlement_label.data, entitlement_label->data, sizeof(entitlement_label->data)) == 0) {
+            return 0;
+        }
+    }
+    return SCE_NP_ENTITLEMENT_ACCESS_ERROR_NOT_FOUND;
+}
+
+int APS5_VABI sceNpEntitlementAccessGetAddcontEntitlementInfoIndividual(uint32_t service_label, const NpUnifiedEntitlementLabel* entitlement_label, NpEntitlementAccessAddcontEntitlementInfo* info) {
+    return sceNpEntitlementAccessGetAddcontEntitlementInfo(service_label, entitlement_label, info);
+}
+
+int APS5_VABI sceNpEntitlementAccessPollConsumableEntitlementInfo(void) {
+    return SCE_NP_ERROR_SIGNED_OUT;
+}
+
+int APS5_VABI sceNpEntitlementAccessRequestConsumableEntitlementInfo(void) {
+    return SCE_NP_ERROR_SIGNED_OUT;
+}
+
+int APS5_VABI sceNpEntitlementAccessRequestConsumeEntitlement(void) {
+    return SCE_NP_ERROR_SIGNED_OUT;
+}
+
 int APS5_VABI sceNpEntitlementAccessGetSkuFlag(uint32_t* sku_flag) {
     if (!sku_flag) return SCE_NP_ENTITLEMENT_ACCESS_ERROR_PARAMETER;
     *sku_flag = SKU_FLAG_FULL;

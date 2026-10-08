@@ -30,6 +30,17 @@ def executable_with_needed():
     return image
 
 
+def module_with_crt_init():
+    image = module_with_symbol(True)
+    filesz, memsz = struct.unpack_from("<QQ", image, 176 + 32)
+    struct.pack_into("<QQ", image, 176 + 32, filesz + 16, memsz + 16)
+    struct.pack_into("<qQ", image, 0x600 + 8 * 16, 12, 0x1000)
+    struct.pack_into("<qQ", image, 0x600 + 9 * 16, 0, 0)
+    pat = b"\x48\x83\x3d\x11\x22\x33\x44\x00\x74\x19\x4c\x89\xf7\x48\x89\xde"
+    image[0x420:0x420 + len(pat)] = pat
+    return image
+
+
 def main():
     relinker = Path(sys.argv[1]).resolve()
     with tempfile.TemporaryDirectory(prefix="anyps5-needed-modules-") as directory:
@@ -48,12 +59,14 @@ def main():
             case = work / f"{windows}-found"
             modules = case / "Media" / "Modules"
             modules.mkdir(parents=True)
-            (modules / "needed.prx").write_bytes(module_with_symbol(True))
+            (modules / "needed.prx").write_bytes(module_with_crt_init())
             (case / "Media" / "needed.prx").write_text("not ELF")
             result, output = convert(case, windows)
             assert result.returncode == 0, (result.stdout, result.stderr)
             artifact = case / "app0" / "Media" / "Modules" / "needed.prx.guest.prx"
-            assert artifact.read_bytes().startswith(b"MZ" if windows else b"\x7fELF"), artifact
+            content = artifact.read_bytes()
+            assert content.startswith(b"MZ" if windows else b"\x7fELF"), artifact
+            assert b"\x48\x83\x3d\x11\x22\x33\x44\x00\xeb\x19\x4c\x89\xf7\x48\x89\xde" in content, "CRT _init je must be patched to jmp"
             assert list((case / "app0").rglob("*.guest.prx")) == [artifact]
             assert "    Media/Modules/needed.prx.guest.prx\n" in result.stdout, result.stdout
             if windows and os.name == "nt":

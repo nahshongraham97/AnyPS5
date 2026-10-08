@@ -88,6 +88,30 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         }
         for (const auto& [name, path] : found) paths.push_back(path);
     }
+    const std::set<std::filesystem::path> neededPaths(paths.begin(), paths.end());
+    std::error_code dirEc;
+    for (auto it = std::filesystem::recursive_directory_iterator(root, std::filesystem::directory_options::skip_permission_denied, dirEc);
+         !dirEc && it != std::filesystem::recursive_directory_iterator();
+         it.increment(dirEc)) {
+        if (dirEc) break;
+        if (it->is_directory(dirEc)) {
+            const auto dirName = it->path().filename().string();
+            if (std::find(directories.begin(), directories.end(), it->path()) != directories.end() ||
+                dirName == "fakelib" || dirName == "sce_sys") {
+                it.disable_recursion_pending();
+                continue;
+            }
+        }
+        if (!it->is_regular_file(dirEc)) continue;
+        const auto filename = it->path().filename().string();
+        if (!filename.ends_with(".prx") && !filename.ends_with(".sprx")) continue;
+        if (filename.ends_with(GuestModuleSuffix)) continue;
+        if (excludedModules.contains(filename)) continue;
+        if (std::find(paths.begin(), paths.end(), it->path()) != paths.end()) continue;
+        if (isCandidate(it->path())) {
+            paths.push_back(it->path());
+        }
+    }
     if (!unmatchedExclusions.empty()) throw Domain::RelinkerException("Excluded guest module file not found: " + *unmatchedExclusions.begin());
     std::sort(paths.begin(), paths.end());
     if (paths.empty()) return {};
@@ -219,6 +243,23 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         order.push_back(index);
     };
     for (std::size_t index = 0; index < images.size(); ++index) visit(index);
+    std::set<std::size_t> executableNeeded;
+    std::vector<std::size_t> queue;
+    for (std::size_t index = 0; index < images.size(); ++index) {
+        if (neededPaths.contains(images[index].SourcePath)) {
+            executableNeeded.insert(index);
+            queue.push_back(index);
+        }
+    }
+    while (!queue.empty()) {
+        const auto current = queue.back();
+        queue.pop_back();
+        for (const auto dep : dependencies[current]) {
+            if (executableNeeded.insert(dep).second) {
+                queue.push_back(dep);
+            }
+        }
+    }
     std::vector<std::string> hostLibraries;
     std::set<std::string> uniqueHosts;
     const auto addHost = [&](const std::string& name) {
@@ -244,7 +285,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         Io::AppendU64(dynamic.DynamicSegmentData, dynamic.DynStrData.size());
         Io::AppendString(dynamic.DynStrData, name);
     };
-    for (const auto index : order) if (!windows) addNeeded("$ORIGIN/app0/" + images[index].SourcePath.parent_path().lexically_relative(root).generic_string() + "/" + images[index].OutputName);
+    for (const auto index : order) if (!windows && executableNeeded.contains(index)) addNeeded("$ORIGIN/app0/" + images[index].SourcePath.parent_path().lexically_relative(root).generic_string() + "/" + images[index].OutputName);
     for (const auto& name : hostLibraries) addNeeded(name);
     std::string guestRunPath = runPath;
     if (!windows) {
