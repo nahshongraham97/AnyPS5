@@ -96,6 +96,12 @@ struct SysVDynamicSection {
     std::vector<std::uint8_t> RelaPltData;
     std::vector<GuestRuntime> GuestModules;
     std::map<VirtualAddress, std::string> ImportModules;
+    struct RuntimeExport {
+        std::string Name;
+        std::uint64_t Value;
+        std::uint64_t Size;
+    };
+    std::vector<RuntimeExport> RuntimeExports;
 };
 
 struct CallRegistryEntry {

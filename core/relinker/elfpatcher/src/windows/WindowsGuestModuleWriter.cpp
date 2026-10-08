@@ -119,8 +119,15 @@ std::vector<std::uint8_t> GuestModuleWriter::WriteWindows(const Relinker::GuestI
             Io::AppendU64(tlsExports.Data, ImageBase + tlsIndex);
             Io::AppendU64(tlsExports.Data, symbol.Value);
             relocations.push_back(rva);
-        } else rva = image.GetRva(symbol.Value, std::max<std::uint64_t>(symbol.Size, 1));
-        if (!exports.emplace(symbol.Name, rva).second) throw Domain::RelinkerException("Duplicate guest export: " + symbol.Name);
+        } else {
+            rva = image.GetRva(symbol.Value, std::max<std::uint64_t>(symbol.Size, 1));
+        }
+        const auto it = exports.find(symbol.Name);
+        if (it != exports.end()) {
+            if (it->second != rva) throw Domain::RelinkerException("Duplicate guest export with conflicting RVA: " + symbol.Name);
+            continue;
+        }
+        exports.emplace(symbol.Name, rva);
     }
     if (!tlsExports.Data.empty()) {
         nextRva = AlignRva(nextRva + tlsExports.Data.size());

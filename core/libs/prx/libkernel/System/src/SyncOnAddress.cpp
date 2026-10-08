@@ -7,8 +7,11 @@
 #include <exception>
 #include <mutex>
 #include <new>
+#include <limits>
 #include <unordered_map>
 #include <vector>
+
+extern "C" int* APS5_VABI __error_nid_postfix();
 
 namespace {
 
@@ -16,6 +19,11 @@ constexpr int INVALID_ARGUMENT = static_cast<int>(0x80020016u);
 constexpr int TIMED_OUT = static_cast<int>(0x8002003cu);
 constexpr int OUT_OF_MEMORY = static_cast<int>(0x8002000cu);
 constexpr auto POLL_INTERVAL = std::chrono::milliseconds(10);
+
+struct GuestTimespec {
+    std::int64_t seconds;
+    std::int64_t nanoseconds;
+};
 
 struct Waiter {
     std::condition_variable condition;
@@ -106,6 +114,56 @@ int APS5_VABI sceKernelSyncOnAddressWake(volatile void* address, std::int32_t co
         if (--count == 0) break;
     }
     return 0;
+}
+
+int APS5_VABI _umtx_op_nid_postfix(void* object, int operation, std::uint64_t value,
+                                   void* timeoutSize, void* timeout) {
+    constexpr int Wait = 2;
+    constexpr int Wake = 3;
+    constexpr int CvSignal = 9;
+    constexpr int CvBroadcast = 10;
+    constexpr int WaitUint = 11;
+    constexpr int WaitUintPrivate = 15;
+    constexpr int WakePrivate = 16;
+
+    std::uint32_t timeoutMicros;
+    const std::uint32_t* timeoutPointer = nullptr;
+    if (timeout != nullptr) {
+        const auto size = reinterpret_cast<std::uintptr_t>(timeoutSize);
+        if (size < sizeof(GuestTimespec)) { *__error_nid_postfix() = 22; return -1; }
+        const auto& duration = *static_cast<const GuestTimespec*>(timeout);
+        if (duration.seconds < 0 || duration.nanoseconds < 0 || duration.nanoseconds >= 1000000000) {
+            *__error_nid_postfix() = 22;
+            return -1;
+        }
+        const auto micros = static_cast<std::uint64_t>(duration.seconds) * UINT64_C(1000000) +
+            (static_cast<std::uint64_t>(duration.nanoseconds) + 999) / 1000;
+        timeoutMicros = static_cast<std::uint32_t>(std::min<std::uint64_t>(micros, UINT32_MAX));
+        timeoutPointer = &timeoutMicros;
+    }
+
+    int result;
+    if (operation == Wait) {
+        result = sceKernelSyncOnAddressWait64(static_cast<volatile std::uint64_t*>(object), value, timeoutPointer);
+    } else if (operation == WaitUint || operation == WaitUintPrivate) {
+        result = sceKernelSyncOnAddressWait32(static_cast<volatile std::uint32_t*>(object),
+            static_cast<std::uint32_t>(value), timeoutPointer);
+    } else if (operation == Wake || operation == WakePrivate ||
+               operation == CvSignal || operation == CvBroadcast) {
+        const auto requested = operation == CvSignal ? UINT64_C(1) :
+            operation == CvBroadcast ? static_cast<std::uint64_t>(INT32_MAX) : value;
+        const auto count = static_cast<std::int32_t>(std::min<std::uint64_t>(requested, INT32_MAX));
+        result = sceKernelSyncOnAddressWake(object, count);
+    } else {
+        *__error_nid_postfix() = 78;
+        return -1;
+    }
+
+    if (result == 0) return 0;
+    if (result == TIMED_OUT) *__error_nid_postfix() = 60;
+    else if (result == OUT_OF_MEMORY) *__error_nid_postfix() = 12;
+    else *__error_nid_postfix() = 22;
+    return -1;
 }
 
 }

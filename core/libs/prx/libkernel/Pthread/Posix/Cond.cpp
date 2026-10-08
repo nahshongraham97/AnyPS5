@@ -22,7 +22,10 @@ int toPosix(int result) {
 extern "C" {
 
 int APS5_VABI pthread_cond_broadcast_nid_postfix(PthreadCond* cond) {
-    if (!cond || !*cond) return PosixThread::GUEST_EINVAL;
+    // A zero-filled pthread_cond_t is the static initializer used by the guest
+    // libc.  The SCE implementation below deliberately creates its native
+    // backing object on first use, so only a null pointer is invalid here.
+    if (!cond) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondBroadcast(cond));
 }
 
@@ -43,18 +46,18 @@ int APS5_VABI pthread_cond_destroy_nid_postfix(PthreadCond* cond) {
 }
 
 int APS5_VABI pthread_cond_signal_nid_postfix(PthreadCond* cond) {
-    if (!cond || !*cond) return PosixThread::GUEST_EINVAL;
+    if (!cond) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondSignal(cond));
 }
 
 int APS5_VABI pthread_cond_timedwait_nid_postfix(PthreadCond* cond, PthreadMutex* mutex, const KernelTimespec* abstime) {
     if (!abstime || abstime->tv_nsec < 0 || abstime->tv_nsec >= 1000000000) return PosixThread::GUEST_EINVAL;
-    if (!cond || !*cond || !mutex || !*mutex) return PosixThread::GUEST_EINVAL;
+    if (!cond || !mutex) return PosixThread::GUEST_EINVAL;
     return toPosix(CondOperations::AbsoluteTimedwait(cond, mutex, abstime));
 }
 
 int APS5_VABI pthread_cond_wait_nid_postfix(PthreadCond* cond, PthreadMutex* mutex) {
-    if (!cond || !*cond || !mutex || !*mutex) return PosixThread::GUEST_EINVAL;
+    if (!cond || !mutex) return PosixThread::GUEST_EINVAL;
     return toPosix(scePthreadCondWait(cond, mutex));
 }
 

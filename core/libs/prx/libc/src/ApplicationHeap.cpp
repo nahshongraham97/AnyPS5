@@ -21,6 +21,8 @@ using Calloc = void* (APS5_VABI *)(std::size_t, std::size_t);
 using Align = void* (APS5_VABI *)(std::size_t, std::size_t);
 using Realign = void* (APS5_VABI *)(void*, std::size_t, std::size_t);
 using PosixAlign = int (APS5_VABI *)(void**, std::size_t, std::size_t);
+using Stats = int (APS5_VABI *)(void*);
+using UsableSize = std::size_t (APS5_VABI *)(void*);
 using Initialize = void (APS5_VABI *)();
 
 std::mutex heapMutex;
@@ -232,4 +234,23 @@ int ApplicationHeapPosixAlign_nid_no_patch(void** pointer, std::size_t alignment
     if (reinterpret_cast<std::uintptr_t>(result) % alignment != 0) throw std::runtime_error("application heap: allocator returned a misaligned pointer");
     *pointer = result;
     return 0;
+}
+
+int ApplicationHeapStats_nid_no_patch(void* stats) {
+    const auto measure = callback<Stats>(7);
+    CallbackScope scope;
+    return measure(stats);
+}
+
+int ApplicationHeapStatsFast_nid_no_patch(void* stats) {
+    const auto measure = callback<Stats>(8);
+    CallbackScope scope;
+    return measure(stats);
+}
+
+std::size_t ApplicationHeapUsableSize_nid_no_patch(void* pointer) {
+    if (pointer == nullptr) return 0;
+    const auto measure = callback<UsableSize>(9);
+    CallbackScope scope;
+    return measure(pointer);
 }

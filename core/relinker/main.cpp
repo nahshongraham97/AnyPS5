@@ -150,7 +150,15 @@ int main(const int argc, char* argv[]) {
 
         std::shared_ptr<Elfpatcher::IElfPatcher> patcher;
         if (args.toWindows) {
-            patcher = std::make_shared<Elfpatcher::Windows::WindowsPePatcher>(args.windowsGui, std::filesystem::path(args.inputPath).parent_path() / "sce_sys" / "icon0.png");
+            std::filesystem::path iconPath;
+            if (!stagingApp0.empty() && std::filesystem::exists(stagingApp0 / "sce_sys" / "icon0.png")) {
+                iconPath = stagingApp0 / "sce_sys" / "icon0.png";
+            } else if (!stagingApp0.empty() && std::filesystem::exists(stagingApp0 / "icon0.png")) {
+                iconPath = stagingApp0 / "icon0.png";
+            } else {
+                iconPath = std::filesystem::path(args.inputPath).parent_path() / "sce_sys" / "icon0.png";
+            }
+            patcher = std::make_shared<Elfpatcher::Windows::WindowsPePatcher>(args.windowsGui, iconPath);
         } else {
             patcher = std::make_shared<Elfpatcher::Linux::LinuxElfPatcher>(
                 std::make_shared<Elfpatcher::EntryStubBuilder>(),

@@ -29,6 +29,10 @@ Throughout the project, every function at every stage either **does exactly what
 - [sceAvPlayerSetTrickSpeed](../../core/libs/prx/libSceAvPlayer/src/Source.cpp) (libSceAvPlayer) with a negative speed runs the clock backwards but delivers no frames; when a forward speed is set again, playback resumes from the rewound time.
 - [ulobjmgr](../../core/libs/prx/ulobjmgr/Export.cpp) registers no object: `_sceUlobjmgrRegisterObject` always hands out id 0 and `_sceUlobjmgrUnregisterObject` releases nothing, as shadPS4 does
 - [libSceHttp](../../core/libs/prx/libSceHttp/Export.cpp) - no request reaches the network, so `sceHttpSetResponseHeaderMaxSize` has no response header to limit and `sceHttpRedirectCacheFlush` no redirect to forget; `sceHttpsUnloadCert` returns success like `sceHttpsLoadCert`, which keeps no certificate
+- [libSceRegMgr](../../core/libs/prx/libSceRegMgr/Export.cpp) answers setting reads as entry-not-found (0x80060002) so callers fall back to their internal defaults.
+- [libSceShaderTranscode_minimal](../../core/libs/prx/libSceShaderTranscode_minimal/Export.cpp)
+- [libSceDbgThreadSanitizer](../../core/libs/prx/libSceDbgThreadSanitizer/Export.cpp)
+- [libSceDeci5](../../core/libs/prx/libSceDeci5/Export.cpp)
 
 ### Unknown function info
 

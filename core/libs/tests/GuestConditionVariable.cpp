@@ -39,6 +39,11 @@ int main() {
     Require(pthread_cond_init_nid_postfix(&cond, nullptr) == 0);
     Require(pthread_cond_signal_nid_postfix(nullptr) == EINVAL);
     Require(pthread_cond_broadcast_nid_postfix(nullptr) == EINVAL);
+    PthreadCond staticCond = nullptr;
+    Require(pthread_cond_signal_nid_postfix(&staticCond) == 0 && staticCond);
+    Require(pthread_cond_destroy_nid_postfix(&staticCond) == 0 && !staticCond);
+    Require(pthread_cond_broadcast_nid_postfix(&staticCond) == 0 && staticCond);
+    Require(pthread_cond_destroy_nid_postfix(&staticCond) == 0 && !staticCond);
     Require(pthread_cond_wait_nid_postfix(&cond, &mutex) == EPERM);
     std::atomic<bool> ready{false};
     bool published = false;

@@ -143,7 +143,8 @@ GuestImage GuestImageReader::Read(const std::filesystem::path& path, std::vector
         }
         if (offset != 0 && ((info >> 4) > 2 || (visibility & ~3u) != 0 || ((info & 15) != 0 && (info & 15) != 1 && (info & 15) != 2 && (info & 15) != 6))) fail("Unsupported symbol attributes: " + name);
         if (section != 0 && (info >> 4) != 0 && visibility != 1 && visibility != 2) {
-            if (name.empty() || !exports.insert(name).second) fail("Duplicate or empty export after stripping #: " + name);
+            if (name.empty()) fail("Empty export name");
+            exports.insert(name);
         }
         if ((info & 15) == 6 && section != 0 && (tls == nullptr || value > tls->MemorySize || size > tls->MemorySize - value)) fail("TLS symbol exceeds TLS segment: " + name);
         if (section != 0 && section != AbsoluteSection && (info & 15) != 6) {

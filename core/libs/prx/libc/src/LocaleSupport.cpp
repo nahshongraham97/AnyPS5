@@ -303,6 +303,13 @@ std::size_t APS5_VABI mbsrtowcs_nid_postfix(std::uint16_t* destination, const ch
     }
 }
 
+std::size_t APS5_VABI mbstowcs_nid_postfix(std::uint16_t* destination, const char* source,
+                                            std::size_t capacity) {
+    if (source == nullptr) { errno = 22; return static_cast<std::size_t>(-1); }
+    const char* cursor = source;
+    return mbsrtowcs_nid_postfix(destination, &cursor, capacity, nullptr);
+}
+
 std::size_t APS5_VABI wcrtomb_nid_postfix(char* destination, std::uint16_t character,
                                            void* state) {
     (void)state;

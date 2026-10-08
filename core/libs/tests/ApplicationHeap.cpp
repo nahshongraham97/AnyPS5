@@ -32,6 +32,7 @@ std::size_t lastAlignment = 0;
 unsigned posixCalls = 0;
 unsigned initializes = 0;
 unsigned frees = 0;
+unsigned statsCalls = 0;
 bool fail = false;
 bool recurse = false;
 bool nullPosixResult = false;
@@ -92,6 +93,17 @@ int APS5_VABI posixAlign(void** pointer, std::size_t alignment, std::size_t byte
     return 0;
 }
 
+int APS5_VABI stats(void* output) {
+    require(output == storage.data());
+    ++statsCalls;
+    return 17;
+}
+
+std::size_t APS5_VABI usableSize(void* pointer) {
+    require(pointer == storage.data());
+    return 123;
+}
+
 template<typename TValue, std::size_t TSize>
 void write(std::array<std::byte, TSize>& data, std::size_t offset, TValue value) {
     require(offset <= data.size() && sizeof(value) <= data.size() - offset);
@@ -122,6 +134,9 @@ int main(int argc, char** argv) {
     write(replacement, 0x40, &align);
     write(replacement, 0x48, &realign);
     write(replacement, 0x50, &posixAlign);
+    write(replacement, 0x58, &stats);
+    write(replacement, 0x60, &stats);
+    write(replacement, 0x68, &usableSize);
     if (argc > 1 && std::strcmp(argv[1], "exit-order") == 0) {
         require(atexit_nid_postfix(exitCallbackAllocates) == 0);
         ApplicationHeapInitialize_nid_no_patch(process.data());
@@ -185,6 +200,10 @@ int main(int argc, char** argv) {
     require(frees == 2);
     require(ApplicationHeapCalloc_nid_no_patch(3, 16) == storage.data() && lastSize == 48);
     require(ApplicationHeapPosixAlign_nid_no_patch(&pointer, 64, 128) == 0 && pointer == storage.data() && lastAlignment == 64);
+    require(ApplicationHeapStats_nid_no_patch(storage.data()) == 17);
+    require(ApplicationHeapStatsFast_nid_no_patch(storage.data()) == 17 && statsCalls == 2);
+    require(ApplicationHeapUsableSize_nid_no_patch(storage.data()) == 123);
+    require(ApplicationHeapUsableSize_nid_no_patch(nullptr) == 0);
     reject([] { ApplicationHeapAlign_nid_no_patch(3, 64); });
     reject([] { ApplicationHeapCalloc_nid_no_patch(2, std::numeric_limits<std::size_t>::max()); });
     require(_Znwm_nid_postfix(0) == storage.data() && lastSize == 1);

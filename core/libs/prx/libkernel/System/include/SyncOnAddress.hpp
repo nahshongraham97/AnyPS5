@@ -22,6 +22,8 @@ int APS5_VABI sceKernelSyncOnAddressWait32(volatile std::uint32_t* address,
 int APS5_VABI sceKernelSyncOnAddressWait64(volatile std::uint64_t* address,
                                           std::uint64_t expected, const std::uint32_t* timeoutMicros);
 int APS5_VABI sceKernelSyncOnAddressWake(volatile void* address, std::int32_t count);
+int APS5_VABI _umtx_op_nid_postfix(void* object, int operation, std::uint64_t value,
+                                   void* timeoutSize, void* timeout);
 }
 
 #endif

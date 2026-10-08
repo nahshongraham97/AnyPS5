@@ -282,6 +282,42 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     }
     auto dynSection = _dynamicSectionBuilder->BuildDynamicSection(dynamicRefs, neededLibraries, dynJmpRelOffset, pltCount);
 
+    // Keep globally visible exports from the main image available to runtime
+    // symbol lookup.  On the console, sceKernelDlsym(handle 0, ...) searches
+    // the executable; the Windows image therefore needs an ordinary PE export
+    // table containing the original NID names.
+    if (hasTag(DT_OS_SYMTABSZ)) {
+        const auto symbolBytes = getTagValue(DT_OS_SYMTABSZ);
+        if (symbolBytes == 0 || symbolBytes % symEntSize != 0 ||
+            dynSymTabOffset > raw.size() || symbolBytes > raw.size() - dynSymTabOffset)
+            throw RelinkerException("Invalid dynamic symbol table size", dynSymTabOffset);
+        for (std::uint64_t offset = symEntSize; offset < symbolBytes; offset += symEntSize) {
+            const auto entry = dynSymTabOffset + offset;
+            std::uint32_t nameOffset = 0;
+            std::uint16_t section = 0;
+            std::uint64_t value = 0;
+            std::uint64_t size = 0;
+            std::memcpy(&nameOffset, raw.data() + entry, 4);
+            const auto info = raw[entry + 4];
+            const auto visibility = raw[entry + 5] & 3u;
+            std::memcpy(&section, raw.data() + entry + 6, 2);
+            std::memcpy(&value, raw.data() + entry + 8, 8);
+            std::memcpy(&size, raw.data() + entry + 16, 8);
+            if (section == 0 || section >= 0xff00 || (info >> 4) == 0 ||
+                visibility == 1 || visibility == 2 || (info & 15) == 6)
+                continue;
+            auto name = readCStr(nameOffset);
+            name = name.substr(0, name.find('#'));
+            // Exporting an IL2CPP executable's entire dynamic symbol table is
+            // both wasteful and impossible once it exceeds PE's 65,535-name
+            // limit.  Keep the small set of main-image callbacks that guest
+            // modules obtain through sceKernelDlsym(handle 0).  Add entries as
+            // additional runtime lookup contracts are identified.
+            if (name == "ayuoL6Vjz2k" || name == "scriptingGetMem")
+                dynSection.RuntimeExports.push_back({std::move(name), value, size});
+        }
+    }
+
     auto appendRela = [&](std::vector<std::uint8_t>& buf, std::uint64_t offset, std::uint64_t info, std::int64_t addend) {
         std::size_t pos = buf.size();
         buf.resize(pos + 24);

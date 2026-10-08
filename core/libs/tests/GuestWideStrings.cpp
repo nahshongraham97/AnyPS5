@@ -31,6 +31,7 @@ std::size_t APS5_VABI mbrtowc_nid_postfix(std::uint16_t*, const char*, std::size
 std::size_t APS5_VABI mbrlen_nid_postfix(const char*, std::size_t, void*);
 int APS5_VABI mbtowc_nid_postfix(std::uint16_t*, const char*, std::size_t);
 std::size_t APS5_VABI mbsrtowcs_nid_postfix(std::uint16_t*, const char**, std::size_t, void*);
+std::size_t APS5_VABI mbstowcs_nid_postfix(std::uint16_t*, const char*, std::size_t);
 std::size_t APS5_VABI wcrtomb_nid_postfix(char*, std::uint16_t, void*);
 int* APS5_VABI __error_nid_postfix();
 extern int __mb_cur_max_nid_postfix;
@@ -139,6 +140,15 @@ int main() {
     source = "A";
     Require(mbsrtowcs_nid_postfix(wide.data(), &source, 0, state.data()) == 0 && *source == 'A');
     Require(mbsrtowcs_nid_postfix(wide.data(), nullptr, 2, state.data()) == static_cast<std::size_t>(-1));
+    Require(*__error_nid_postfix() == 22);
+    wide.fill(0xbeef);
+    Require(mbstowcs_nid_postfix(wide.data(), "ABC", 2) == 2);
+    Require(wide[0] == u'A' && wide[1] == u'B' && wide[2] == 0xbeef);
+    Require(mbstowcs_nid_postfix(wide.data(), "ABC", wide.size()) == 3 && wide[3] == 0);
+    Require(mbstowcs_nid_postfix(nullptr, "ABC", 0) == 3);
+    Require(mbstowcs_nid_postfix(wide.data(), "A\x80", wide.size()) == static_cast<std::size_t>(-1));
+    Require(*__error_nid_postfix() == 86);
+    Require(mbstowcs_nid_postfix(wide.data(), nullptr, wide.size()) == static_cast<std::size_t>(-1));
     Require(*__error_nid_postfix() == 22);
     Require(wcrtomb_nid_postfix(nullptr, 0xffff, state.data()) == 1);
     char encoded = 'x';

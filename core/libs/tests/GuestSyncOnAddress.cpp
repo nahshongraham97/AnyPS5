@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <thread>
 
+extern "C" int* APS5_VABI __error_nid_postfix();
+
 namespace {
 void Require(bool value) { if (!value) std::abort(); }
 
@@ -32,6 +34,15 @@ int main() {
     Require(sceKernelSyncOnAddressWait32(&value, 7, &zero) == timedOut);
     Require(sceKernelSyncOnAddressWait64(&wide, 9, &shortTimeout) == timedOut);
     Require(SyncOnAddress::Waiting(&wide) == 0);
+    struct GuestTimespec { std::int64_t seconds; std::int64_t nanoseconds; };
+    const GuestTimespec shortDuration{0, 2000000};
+    *__error_nid_postfix() = 0;
+    Require(_umtx_op_nid_postfix(&value, 15, 8, nullptr, nullptr) == 0);
+    Require(_umtx_op_nid_postfix(&value, 15, 7,
+        reinterpret_cast<void*>(sizeof(shortDuration)), const_cast<GuestTimespec*>(&shortDuration)) == -1);
+    Require(*__error_nid_postfix() == 60);
+    Require(_umtx_op_nid_postfix(&value, 999, 0, nullptr, nullptr) == -1);
+    Require(*__error_nid_postfix() == 78);
 
     std::atomic<int> completed{0};
     std::atomic<int> results{0};
@@ -52,6 +63,24 @@ int main() {
     first.join();
     second.join();
     Require(completed == 2 && results == 0 && SyncOnAddress::Waiting(&value) == 0);
+
+    std::thread umtxWaiter([&] {
+        Require(_umtx_op_nid_postfix(&value, 15, 7, nullptr, nullptr) == 0);
+        ++completed;
+    });
+    Eventually([&] { return SyncOnAddress::Waiting(&value) == 1; });
+    Require(_umtx_op_nid_postfix(&value, 16, 1, nullptr, nullptr) == 0);
+    umtxWaiter.join();
+    Require(completed == 3 && SyncOnAddress::Waiting(&value) == 0);
+
+    std::thread cvWaiter([&] {
+        Require(_umtx_op_nid_postfix(&value, 15, 7, nullptr, nullptr) == 0);
+        ++completed;
+    });
+    Eventually([&] { return SyncOnAddress::Waiting(&value) == 1; });
+    Require(_umtx_op_nid_postfix(&value, 10, 0, nullptr, nullptr) == 0);
+    cvWaiter.join();
+    Require(completed == 4 && SyncOnAddress::Waiting(&value) == 0);
 
     std::thread wideWaiter([&] {
         results += sceKernelSyncOnAddressWait64(&wide, 9, &longTimeout);

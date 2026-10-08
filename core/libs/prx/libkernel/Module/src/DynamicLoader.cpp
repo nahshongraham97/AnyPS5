@@ -75,6 +75,19 @@ void* FindInKernel(const char* name) {
     return ::dlsym(RTLD_DEFAULT, nid.c_str());
 #endif
 }
+void* FindInMain(const char* name) {
+#ifdef _WIN32
+    const auto module = GetModuleHandleW(nullptr);
+    if (!module) return nullptr;
+    if (auto* symbol = GetProcAddress(module, name)) return reinterpret_cast<void*>(symbol);
+    const auto nid = Nid::ComputeNid(name, "");
+    return reinterpret_cast<void*>(GetProcAddress(module, nid.c_str()));
+#else
+    if (auto* symbol = ::dlsym(RTLD_DEFAULT, name)) return symbol;
+    const auto nid = Nid::ComputeNid(name, "");
+    return ::dlsym(RTLD_DEFAULT, nid.c_str());
+#endif
+}
 }
 
 extern "C" {
@@ -83,7 +96,9 @@ int APS5_VABI sceKernelDlsym(KernelModule handle, const char* name, void** addre
     if (!address || !name || !*name) return -1;
     *address = nullptr;
     try {
-        if (handle == 1 || handle == 0x2001) {
+        if (handle == 0) {
+            *address = FindInMain(name);
+        } else if (handle == 1 || handle == 0x2001) {
             *address = FindInKernel(name);
         } else {
             std::shared_ptr<Module> module;
