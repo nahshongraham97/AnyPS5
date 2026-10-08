@@ -5,7 +5,8 @@
 #include <iostream>
 #include <stdexcept>
 #if defined(_WIN32)
-#include <process.h>
+#include <windows.h>
+#include <vector>
 #else
 #include <cerrno>
 #include <spawn.h>
@@ -17,6 +18,29 @@ namespace Relinker {
 
 namespace {
 
+#if defined(_WIN32)
+std::wstring QuoteWindowsArgument(const std::wstring& argument) {
+    std::wstring quoted = L"\"";
+    std::size_t slashes = 0;
+    for (const wchar_t ch : argument) {
+        if (ch == L'\\') {
+            ++slashes;
+        } else if (ch == L'"') {
+            quoted.append(slashes * 2 + 1, L'\\');
+            quoted += ch;
+            slashes = 0;
+        } else {
+            quoted.append(slashes, L'\\');
+            quoted += ch;
+            slashes = 0;
+        }
+    }
+    quoted.append(slashes * 2, L'\\');
+    quoted += L'"';
+    return quoted;
+}
+#endif
+
 int InvokeExtractor(const std::filesystem::path& executable, const std::filesystem::path& input,
                     const std::filesystem::path& output) {
     if (!std::filesystem::is_regular_file(executable))
@@ -25,10 +49,22 @@ int InvokeExtractor(const std::filesystem::path& executable, const std::filesyst
     const auto exe = std::filesystem::absolute(executable).wstring();
     const auto package = input.wstring();
     const auto destination = output.wstring();
-    const wchar_t* arguments[] = {exe.c_str(), L"--input", package.c_str(), L"--output", destination.c_str(), nullptr};
-    const auto status = _wspawnv(_P_WAIT, exe.c_str(), arguments);
-    if (status == -1) throw Domain::RelinkerException("Could not start package extractor: " + executable.string());
-    return status;
+    auto commandLine = QuoteWindowsArgument(exe) + L" --input " + QuoteWindowsArgument(package) +
+                       L" --output " + QuoteWindowsArgument(destination);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (!CreateProcessW(exe.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                        &startup, &process))
+        throw Domain::RelinkerException("Could not start package extractor: " + executable.string());
+    const DWORD waitResult = WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    const BOOL gotExitCode = GetExitCodeProcess(process.hProcess, &exitCode);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    if (waitResult != WAIT_OBJECT_0 || !gotExitCode)
+        throw Domain::RelinkerException("Could not wait for package extractor: " + executable.string());
+    return static_cast<int>(exitCode);
 #else
     const auto exe = std::filesystem::absolute(executable).string();
     const auto package = input.string();
