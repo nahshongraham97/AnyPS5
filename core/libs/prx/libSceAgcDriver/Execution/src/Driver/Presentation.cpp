@@ -74,8 +74,7 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
 
         if (presentable && !syncFlip) {
             if (inFlight != 0) {
-
-                waitedMs = presenting->RetirePresents(presenting->PresentWaitsForSlots(buffer) ? 0 : inFlight);
+                waitedMs = presenting->RetirePresents((buffer == nullptr || presenting->PresentWaitsForSlots(buffer)) ? 0 : inFlight);
                 timing.Mark("inflight_wait");
             }
             presentable = presenting->AcquireImage();
@@ -101,7 +100,6 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
                 timing.Mark("render_fence_wait");
             }
             if (submitted && (syncFlip || inFlight != 0)) {
-
                 presenting->QueuePresent();
                 timing.Mark("queue_present");
                 trailing = !syncFlip;
@@ -109,7 +107,7 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
             }
         }
         static const bool syncPresent = std::getenv("APS5_SYNC_PRESENT") != nullptr;
-        if (trailing && (syncPresent || inFlight == 0)) {
+        if (buffer == nullptr || (trailing && (syncPresent || inFlight == 0))) {
             waitedMs += presenting->FinishPresent();
             timing.Mark("render_fence_wait");
         }

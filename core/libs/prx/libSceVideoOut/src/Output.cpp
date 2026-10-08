@@ -101,14 +101,21 @@ int APS5_VABI sceVideoOutSetFlipRate(int handle, int rate) try {
     const bool unlockFps = std::getenv("APS5_UNLOCK_FPS") != nullptr;
     if (forceRateStr != nullptr) {
         effectiveRate = std::clamp(std::atoi(forceRateStr), 0, 2);
-        std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: requested=%d, OVERRIDDEN to %d via APS5_FLIP_RATE\n", rate, effectiveRate);
     } else if (unlockFps) {
         effectiveRate = 0;
-        std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: requested=%d, UNLOCKED to 0 (60Hz flip) via APS5_UNLOCK_FPS\n", rate);
-    } else {
-        std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: rate=%d\n", rate);
     }
-    std::fflush(stderr);
+    static int lastLoggedRate = -1;
+    if (effectiveRate != lastLoggedRate) {
+        lastLoggedRate = effectiveRate;
+        if (forceRateStr != nullptr) {
+            std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: requested=%d, OVERRIDDEN to %d via APS5_FLIP_RATE\n", rate, effectiveRate);
+        } else if (unlockFps) {
+            std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: requested=%d, UNLOCKED to 0 (60Hz flip) via APS5_UNLOCK_FPS\n", rate);
+        } else {
+            std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: rate=%d\n", rate);
+        }
+        std::fflush(stderr);
+    }
     cfg->flipRate = effectiveRate;
     return 0;
 } catch (const ProcessShutdown&) {

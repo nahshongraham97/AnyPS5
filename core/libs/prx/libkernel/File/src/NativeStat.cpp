@@ -81,10 +81,17 @@ static void CopyNativeStat(const NativeStat& st, FileStat* sb) {
 
 namespace File {
 
+bool FillFileStatFromPath(const std::filesystem::path& nativePath, FileStat* sb) {
+    NativeStat st{};
+    if (DoStat(nativePath, &st) != 0) return false;
+    CopyNativeStat(st, sb);
+    return true;
+}
+
 void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
     NativeStat st{};
     if (DoStat(nativePath, &st) != 0) {
-        throw std::runtime_error(std::string("FillFileStat: stat failed for ") + nativePath.string());
+        return;
     }
     CopyNativeStat(st, sb);
 }
@@ -92,7 +99,7 @@ void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
 void FillFileStat(int nativeDescriptor, FileStat* sb) {
     NativeStat st{};
     if (DoFstat(nativeDescriptor, &st) != 0) {
-        throw std::runtime_error(std::string("FillFileStat: fstat failed for fd ") + std::to_string(nativeDescriptor));
+        return;
     }
     CopyNativeStat(st, sb);
 }
