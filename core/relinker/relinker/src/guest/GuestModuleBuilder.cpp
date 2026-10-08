@@ -1,5 +1,7 @@
 #include <relinker/guest/GuestImage.hpp>
 #include <relinker/parsing/SelfImage.hpp>
+#include <relinker/guest/ReplacementModules.hpp>
+#include <domain/ImportModule.hpp>
 #include <elfpatcher/general/GuestModuleWriter.hpp>
 #include <codegen/IAmd64OnlyConverter.hpp>
 #include <io/FileReader.hpp>
@@ -130,6 +132,25 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
             throw Domain::RelinkerException("Guest module '" + path.filename().string() + "' cannot be unwrapped: " + e.what());
         }
         auto image = GuestImageReader().Read(path, std::move(elfBytes));
+        auto identities = image.ModuleNames;
+        if (identities.empty()) identities.push_back(image.Soname.empty() ? path.filename().string() : image.Soname);
+        for (const auto& identity : identities) {
+            const auto moduleName = identity.ends_with(".prx") ? identity : identity + ".prx";
+            std::string owner;
+            for (const auto replacement : ReplacementModules) {
+                if (replacement == moduleName) { owner = replacement; break; }
+            }
+            if (owner.empty()) {
+                for (const auto replacement : ReplacementModules) {
+                    if (Domain::ImportModuleName(std::string(replacement)) != Domain::ImportModuleName(moduleName)) continue;
+                    if (!owner.empty()) throw Domain::RelinkerException("Ambiguous replacement module identity: " + identity);
+                    owner = replacement;
+                }
+            }
+            if (owner.empty()) continue;
+            if (!image.ReplacementModule.empty() && image.ReplacementModule != owner) throw Domain::RelinkerException("Conflicting replacement lifecycle owners: " + path.string());
+            image.ReplacementModule = std::move(owner);
+        }
         if (image.OutputName.find_first_of("$\r\n") != std::string::npos) throw Domain::RelinkerException("Unsupported guest filename: " + image.OutputName);
         std::string folded = image.OutputName;
         if (windows) {
@@ -291,6 +312,9 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     }
     for (const auto& image : images) for (const auto& dependency : image.Dependencies) addHost(dependency);
     if (uniqueHosts.contains("libSceLibcInternal.prx") && uniqueHosts.insert("libc.prx").second) hostLibraries.push_back("libc.prx");
+    for (const auto& image : images) {
+        if (!image.ReplacementModule.empty() && uniqueHosts.insert(image.ReplacementModule).second) hostLibraries.push_back(image.ReplacementModule);
+    }
     dynamic.DynamicSegmentData.clear();
     const auto addNeeded = [&](const std::string& name) {
         Io::AppendU64(dynamic.DynamicSegmentData, 1);

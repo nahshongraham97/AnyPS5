@@ -77,6 +77,7 @@ file(GLOB LIBS_DIRS LIST_DIRECTORIES true ${CMAKE_CURRENT_SOURCE_DIR}/prx/*)
 list(REMOVE_ITEM LIBS_DIRS ${LIBC_DIR})
 
 set(PATCHED_OUTPUTS ${LIBC_PATCHED})
+set(ANYPS5_REPLACEMENT_MODULES libc.prx)
 
 foreach(LIB_DIR ${LIBS_DIRS})
     if(IS_DIRECTORY ${LIB_DIR})
@@ -127,8 +128,10 @@ foreach(LIB_DIR ${LIBS_DIRS})
         add_custom_target(patched_${LIB_NAME} DEPENDS ${PATCHED_FILE})
 
         list(APPEND PATCHED_OUTPUTS ${PATCHED_FILE})
+        list(APPEND ANYPS5_REPLACEMENT_MODULES ${LIB_NAME}.prx)
     endif()
 endforeach()
+set(ANYPS5_REPLACEMENT_MODULES ${ANYPS5_REPLACEMENT_MODULES} PARENT_SCOPE)
 
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
@@ -198,15 +201,6 @@ if(BUILD_TESTING)
     add_test(NAME guest_file_scanning COMMAND guest_file_scanning_tests)
     if(WIN32)
         set_tests_properties(guest_file_scanning PROPERTIES ENVIRONMENT_MODIFICATION
-            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
-    endif()
-    add_executable(guest_wide_strings_tests tests/GuestWideStrings.cpp)
-    target_include_directories(guest_wide_strings_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(guest_wide_strings_tests PRIVATE libc)
-    configure_windows_unwind(guest_wide_strings_tests)
-    add_test(NAME guest_wide_strings COMMAND guest_wide_strings_tests)
-    if(WIN32)
-        set_tests_properties(guest_wide_strings PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
     add_executable(guest_cancellation_settings_tests tests/GuestCancellationSettings.cpp)
