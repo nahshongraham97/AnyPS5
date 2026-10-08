@@ -101,6 +101,12 @@ void testPackets() {
     exhausted.buffer.cursor_down = exhausted.words.data() + 2;
     expectFailure([&] { Agc::Command::WriteNop(&exhausted.buffer, 3, __func__); });
     check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed allocation advanced cursor");
+    std::array<std::uint32_t, 8> scratch{};
+    CommandBuffer noDown{scratch.data(), scratch.data() + scratch.size(), scratch.data(), nullptr, nullptr, nullptr, 0};
+    Agc::Command::WriteNop(&noDown, 6, __func__);
+    check(noDown.cursor_up == scratch.data() + 6, "buffer without a down cursor did not use its top as the limit");
+    expectFailure([&] { Agc::Command::WriteNop(&noDown, 3, __func__); });
+    check(noDown.cursor_up == scratch.data() + 6, "allocation past the top of a buffer without a down cursor advanced its cursor");
 }
 
 void testClearState() {

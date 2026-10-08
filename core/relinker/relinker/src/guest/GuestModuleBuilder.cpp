@@ -161,13 +161,25 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
         images.push_back(std::move(image));
     }
     std::map<std::string, std::size_t> guestNames;
+    std::map<std::string, std::size_t> windowsGuestFiles;
+    const auto foldFilename = [](std::string name) {
+        for (auto& character : name) if (character >= 'A' && character <= 'Z') character = static_cast<char>(character + ('a' - 'A'));
+        return name;
+    };
     for (std::size_t index = 0; index < images.size(); ++index) {
         for (const auto& name : {images[index].SourcePath.filename().string(), images[index].Soname}) {
             if (name.empty()) continue;
             const auto [found, inserted] = guestNames.emplace(name, index);
             if (!inserted && found->second != index) throw Domain::RelinkerException("Ambiguous guest dependency name: " + name);
         }
+        if (windows) windowsGuestFiles.emplace(foldFilename(images[index].SourcePath.filename().string()), index);
     }
+    const auto findGuest = [&](const std::string& name) {
+        const auto exact = guestNames.find(name);
+        if (exact != guestNames.end() || !windows) return exact;
+        const auto file = windowsGuestFiles.find(foldFilename(name));
+        return file == windowsGuestFiles.end() ? guestNames.end() : guestNames.emplace(name, file->second).first;
+    };
     const auto rejectSharedImport = [&](const std::string& name, const std::string& importer) {
         const auto shared = sharedExports.find(name);
         if (shared == sharedExports.end()) return;
@@ -200,7 +212,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     }
     for (std::size_t index = 0; index < images.size(); ++index) {
         for (const auto& name : images[index].Dependencies) {
-            const auto found = guestNames.find(name);
+            const auto found = findGuest(name);
             if (found != guestNames.end() && found->second != index) dependencies[index].insert(found->second);
         }
         for (const auto& symbol : images[index].Symbols) {
@@ -210,8 +222,8 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
             std::vector<std::size_t> providers;
             if (found != exports.end()) {
                 for (const auto provider : found->second) {
-                    const auto& candidate = images[provider];
-                    if (!windows || symbol.Library.empty() || symbol.Library == candidate.SourcePath.filename().string() || symbol.Library == candidate.Soname) providers.push_back(provider);
+                    const auto declared = findGuest(symbol.Library);
+                    if (!windows || symbol.Library.empty() || (declared != guestNames.end() && declared->second == provider)) providers.push_back(provider);
                 }
             }
             if (providers.size() > 1) throw Domain::RelinkerException("Ambiguous guest import after stripping #: " + symbol.Name);
@@ -263,7 +275,7 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
     std::vector<std::string> hostLibraries;
     std::set<std::string> uniqueHosts;
     const auto addHost = [&](const std::string& name) {
-        if (guestNames.contains(name)) return;
+        if (findGuest(name) != guestNames.end()) return;
         if (name.empty() || name.find_first_of("/\\:$") != std::string::npos) throw Domain::RelinkerException("Invalid host dependency: " + name);
         if (uniqueHosts.insert(name).second) hostLibraries.push_back(name);
     };
@@ -316,6 +328,11 @@ std::vector<GuestArtifact> GuestModuleBuilder::Build(const std::filesystem::path
             }
             needed.insert(needed.end(), hostLibraries.begin(), hostLibraries.end());
             output = Elfpatcher::GuestModuleWriter().WriteLinux(image, needed, guestRunPath);
+        }
+        if (windows) {
+            for (const auto& [name, provider] : guestNames) {
+                if (provider == index && std::find(runtime.Names.begin(), runtime.Names.end(), name) == runtime.Names.end()) runtime.Names.push_back(name);
+            }
         }
         dynamic.GuestModules.push_back(std::move(runtime));
         artifacts.push_back(GuestArtifact{target, std::move(output)});

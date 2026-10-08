@@ -33,6 +33,7 @@ Throughout the project, every function at every stage either **does exactly what
 - [libSceShaderTranscode_minimal](../../core/libs/prx/libSceShaderTranscode_minimal/Export.cpp)
 - [libSceDbgThreadSanitizer](../../core/libs/prx/libSceDbgThreadSanitizer/Export.cpp)
 - [libSceDeci5](../../core/libs/prx/libSceDeci5/Export.cpp)
+- [sceFontGlyphDefineAttribute](../../core/libs/prx/libSceFont/src/Render.cpp) (libSceFont) checks the glyph and ignores the attribute and its value, whose meaning is unknown. PPSA01325 sets attribute 0x11 to 0 on a glyph from `sceFontGenerateCharGlyph` that it deletes unused, and draws the character with `sceFontRenderCharGlyphImageHorizontal`
 
 ### Unknown function info
 

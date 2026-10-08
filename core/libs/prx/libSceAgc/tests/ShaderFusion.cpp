@@ -15,6 +15,7 @@ namespace {
 constexpr std::uint32_t SCodeEnd = 0xbf9f0000u;
 constexpr std::uint32_t SNop = 0xbf800000u;
 constexpr std::uint32_t SSetpcS6 = 0xbe802006u;
+constexpr std::uint32_t SSwappcNullS6 = 0xbefd2106u;
 constexpr std::uint32_t SMovS0 = 0xbe800380u;
 constexpr std::uint32_t VMovV0 = 0x7e000280u;
 constexpr std::uint32_t SEndpgm = 0xbf810000u;
@@ -67,8 +68,8 @@ struct Halves {
     Shader front{};
     Shader back{};
 
-    Halves() {
-        frontCode = {SMovS0, VMovV0, SSetpcS6, SCodeEnd, SCodeEnd};
+    explicit Halves(std::uint32_t terminator = SSetpcS6) {
+        frontCode = {SMovS0, VMovV0, terminator, SCodeEnd, SCodeEnd};
         const auto codeBytes = static_cast<std::uint32_t>(frontCode.size() * 4);
         std::array<std::uint32_t, 2> magic{};
         std::memcpy(magic.data(), "barefoot", 8);
@@ -123,8 +124,8 @@ std::uint8_t* aligned(std::vector<std::uint8_t>& storage, std::size_t alignment)
     return storage.data() + ((alignment - address % alignment) % alignment);
 }
 
-void testFusion(std::size_t misalignment) {
-    Halves halves;
+void testFusion(std::size_t misalignment, std::uint32_t terminator = SSetpcS6) {
+    Halves halves(terminator);
     SizeAlign size{};
     check(sceAgcUnknownGetFusedShaderSize(&size, &halves.front, &halves.back) == 0, "fused size query failed");
     check(size.m_align == 8, "fused shaders are not 256-byte aligned");
@@ -247,6 +248,7 @@ int main() {
         testFusion(0);
         testFusion(0xa0);
         testFusion(4);
+        testFusion(0, SSwappcNullS6);
         testRejections();
         testHullHalves();
         LibcRunShutdown_nid_postfix();

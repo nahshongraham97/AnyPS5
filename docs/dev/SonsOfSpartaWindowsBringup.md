@@ -8,8 +8,8 @@ list of patches would not preserve enough reasoning to safely continue the inves
 
 The checkpoint described here was produced on October 8, 2026. At this checkpoint the game is no
 longer failing in the launcher, Windows loader, Unity bootstrap, Vulkan bootstrap, or the first FMOD
-bus lookup. It creates a real window, renders the logo sequence at an observed locked rate of about
-40 FPS, starts the game and middleware worker threads, loads Unity scenes and real FMOD banks, and
+bus lookup. It creates a real window, renders the logo sequence, starts the game and middleware
+worker threads, loads Unity scenes and real FMOD banks, and
 performs persistent save-data I/O. It still does not progress beyond the logo-movie/startup sequence.
 The currently observed terminal fault is a later uncaught IL2CPP exception on the
 `SaveDataProcessQueue` thread after the first global-save write. That later fault is documented below
@@ -58,9 +58,12 @@ The following sequence is verified end to end:
     `GoW_SoS999.dat`, stores save parameters, unmounts it, and successfully loads the persisted file
     on the next run.
 
-The observed 40 FPS lock is a runtime observation, not yet a proven timing policy. It may come from
-the title, Unity's presentation settings, the compatibility graphics path, or synchronization. No
-frame-pacing change has been made in this checkpoint.
+Frame rate is currently variable between runs. The first successful launch appeared locked near
+40 FPS, while the next normal launch ran near 19–21 FPS over the same visible startup sequence. The
+earlier 40 FPS observation must therefore not be treated as a stable cap or a performance baseline.
+The variation may come from shader/pipeline compilation, cache state, logging volume, video decode,
+presentation synchronization, or the compatibility graphics path. No frame-pacing or performance
+change has been made in this checkpoint, and profiling is required before assigning a cause.
 
 ## Failure progression and evidence
 
@@ -244,7 +247,8 @@ Before the correction, the title consistently aborted roughly six seconds after 
 dialogue-bus lookup. After it:
 
 - the title remains alive beyond 30 seconds;
-- logo movies render at the user-observed ~40 FPS;
+- logo movies render; observed performance has ranged from roughly 19–21 FPS to roughly 40 FPS
+  between successful runs;
 - later Unity assets and `level5` open;
 - `Scenes/River.bank`, `Scenes/River.assets.bank`, `Scenes/River.streams.bank`,
   `Audio Cues.bank`, `Audio Cues.assets.bank`, and `Audio Cues.streams.bank` open through the real
@@ -454,8 +458,8 @@ sceKernelOpen path=/savedata0/GoW_SoS999.dat
 4. Add a minimal regression test for any confirmed filesystem or save-data semantic mismatch before
    changing it.
 5. Rerun through the logo sequence and verify the persisted global save remains readable.
-6. Only after the save worker is clean, investigate the observed 40 FPS pacing if it is still a
-   practical limitation.
+6. Only after the save worker is clean, profile the large run-to-run frame-rate variation (roughly
+   19–21 FPS versus roughly 40 FPS) with comparable cache, logging, and scene conditions.
 
 ## Things that must not be undone
 

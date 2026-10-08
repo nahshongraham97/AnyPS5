@@ -28,6 +28,7 @@ constexpr std::uint32_t SPI_SHADER_PGM_RSRC2_HS = 0x10Bu;
 constexpr std::uint32_t SCodeEnd = 0xbf9f0000u;
 constexpr std::uint32_t SNop = 0xbf800000u;
 constexpr std::uint32_t SSetpcS6 = 0xbe802006u;
+constexpr std::uint32_t SSwappcNullS6 = 0xbefd2106u;
 constexpr std::uint8_t FusedCodeAlignmentLog2 = 8;
 constexpr std::size_t FusedCodeAlignment = std::size_t{1} << FusedCodeAlignmentLog2;
 constexpr char TrailerMagic[8] = {'b', 'a', 'r', 'e', 'f', 'o', 'o', 't'};
@@ -114,7 +115,7 @@ std::uint32_t FrontProgramBytes(const char* function, const Shader* front) {
         return value;
     };
     while (end > 0 && word(end - 1) == SCodeEnd) --end;
-    if (end == 0 || word(end - 1) != SSetpcS6) Fail(function, "front half does not end with s_setpc_b64 s[6:7]");
+    if (end == 0 || (word(end - 1) != SSetpcS6 && word(end - 1) != SSwappcNullS6)) Fail(function, "front half does not end with s_setpc_b64 s[6:7] or s_swappc_b64 null, s[6:7]");
     return static_cast<std::uint32_t>((end - 1) * 4);
 }
 
