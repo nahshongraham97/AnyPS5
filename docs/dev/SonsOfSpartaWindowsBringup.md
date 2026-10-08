@@ -509,12 +509,37 @@ architecturally resolved:
    - Treats differently shaped views of a depth surface's address as memory reuse rather than throwing
      depth-plane format mismatch errors.
 
+6. **Validated Stencil Clear & ClearMRT Retention (PR #1534 / hamb3r)**:
+   - Extends PR #1479 by selecting stencil clear state before decoding ordinary stencil operations,
+     preventing valid draws from being rejected when overridden by `DB_STENCIL_CLEAR`.
+   - Validates that a stencil plane is writable before clearing and preserves all MRT color outputs
+     and scissor coverage. This directly resolves the compounding bloom highlights obscuring
+     characters and menu scenes (Screenshots 320–323).
+
+7. **Nested TimedWait and APC Timer Fixes (PR #1476 & PR #1520)**:
+   - On Windows, Unity's GC handler runs via `sceKernelRaiseException` as an APC inside sleeping threads.
+     PR #1476 ensures nested waits inside APCs allocate independent waiter instances rather than
+     reusing the outer thread-local waiter and corrupting condition queue links.
+   - PR #1520 ensures nested sleeps inside APC handlers allocate their own high-resolution timer
+     handles so outer sleeps are not prematurely interrupted or orphaned.
+
+8. **Splash Screen Loading Duration & Frame Pacing Diagnostic**:
+   - Live log analysis of `run-milestone-stdout.log` vs `run3.txt` confirmed that the apparent freeze
+     on the Sony splash screen was an incomplete wait duration. During scene and asset bundle loading,
+     Unity PS5 cycles `Forcing call to sce::Agc::suspendPoint to avoid TRC R5089 breach` for 253 consecutive
+     iterations (~8–10 s at normal speeds). Run 3 was terminated after only 16 iterations (~10.8 s total
+     runtime at 13.33 FPS), before the engine could complete background bundle parsing.
+   - The 13.33 FPS lock was diagnosed as a double-buffering / VSync phase beat between the host monitor
+     (100 Hz on AMD RX 6800 XT) and the synthetic 59.94 Hz VBlank loop in `VideoOutDriver` when running
+     `VK_PRESENT_MODE_FIFO_KHR` with `minImageCount = 2`.
+
 ## Verification checklist for this checkpoint
 
 - `git diff --check` reports no whitespace errors.
 - All unit tests passing (`guest_kernel_errors`, `guest_dynamic_loader`, `guest_savedata_*`, `relinker`, `package_staging`).
 - Upstream `boykopovar/AnyPS5` through commit `084aeeb6` cleanly merged.
-- PRs #1479, #1474, #1483, #1473, #1494, and #1495 merged and verified.
+- PRs #1479, #1474 (reverted), #1483, #1473, #1494, #1495, #1534, #1476, and #1520 merged and verified.
+- Freshly compiled `libSceAgcDriver.prx` and `libkernel.prx` deployed to `build/exact-eboot-run/libs/`.
 - The title boots cleanly past the logos, main menu, credits, cutscenes, and into the Cyclops boss battle.
 - In-game bloom/lighting saturation is resolved; full geometry, characters, and textures are visible.
 - Frame pacing operates smoothly without the 15.6 ms winpthreads sleep penalty.
