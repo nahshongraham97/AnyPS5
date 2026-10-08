@@ -195,11 +195,7 @@ char* APS5_VABI setlocale_nid_postfix(int category, const char* locale) {
     return classicName;
 }
 
-// The classic locale collates by code-unit value; transformed keys can be
-// compared with strcmp / guest-width wcscmp in exactly the same order.
-int APS5_VABI strcoll_nid_postfix(const char* left, const char* right) {
-    return std::strcmp(left, right);
-}
+
 
 
 // The guest SDK uses 16-bit wchar_t. Only the classic C locale is modeled;
