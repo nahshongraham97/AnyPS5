@@ -34,12 +34,22 @@ static int NativeWrite(int fd, const void* buf, std::size_t n) {
     }
     return ::_write(fd, buf, static_cast<unsigned int>(n));
 }
+#if defined(_MSC_VER)
 extern "C" _invalid_parameter_handler _set_thread_local_invalid_parameter_handler(_invalid_parameter_handler);
 static void IgnoreInvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned int, std::uintptr_t) {}
+#endif
 static int NativeClose(int fd) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+#if defined(_MSC_VER)
     const auto previous = _set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
+#endif
     const int result = ::_close(fd);
+#if defined(_MSC_VER)
     _set_thread_local_invalid_parameter_handler(previous);
+#endif
     return result;
 }
 static int NativeUnlink(const std::filesystem::path& p) {

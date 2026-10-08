@@ -11,6 +11,7 @@ constexpr std::uint32_t Ps4SelfMagic = 0x1d3d154f;
 constexpr std::uint32_t Ps5SelfMagic = 0xeef51454;
 constexpr std::uint32_t ElfMagic = 0x464c457f; // 0x7f, 'E', 'L', 'F' (little-endian)
 constexpr std::uint32_t PkgMagic = 0x544e437f; // 0x7f, 'C', 'N', 'T' (little-endian read of big-endian 0x7f434e54)
+constexpr std::uint32_t FinalizedImageMagic = 0x4849467f;
 
 std::uint32_t ReadU32LE(const std::vector<std::uint8_t>& buf, std::size_t offset) {
     if (offset + 4 > buf.size()) return 0;
@@ -172,6 +173,14 @@ DetectionResult InputDetector::Detect(const std::filesystem::path& path) {
         result.IsEncryptedOrProtected = true;
         result.DiagnosticMessage = (result.Platform == TargetPlatform::Ps5 ? "Encrypted PS5 retail SELF" : "Encrypted PS4 retail SELF") +
                                    std::string(" (requires decrypted ELF or lawful decryption keys)");
+        return result;
+    }
+
+    if (magicLE == FinalizedImageMagic) {
+        result.Format = InputFormat::PackageContainer;
+        result.Platform = TargetPlatform::Ps5;
+        result.PkgType = PackageType::Unknown;
+        result.DiagnosticMessage = "Finalized PS5 package image (FIH); an extractor must inspect the inner package and its key requirements";
         return result;
     }
 

@@ -48,13 +48,9 @@ Args ParseArgs(int argc, char* argv[]) {
                 throw std::runtime_error("--extractor requires a command value");
             args.extractorCommand = argv[++i];
         } else if (arg == "--passcode") {
-            if (i + 1 >= argc)
-                throw std::runtime_error("--passcode requires a passcode value");
-            args.passcode = argv[++i];
+            throw std::runtime_error("Supply package passcodes through ANYPS5_PASSCODE in the extractor environment; command-line secrets are not accepted");
         } else if (arg == "--image-key") {
-            if (i + 1 >= argc)
-                throw std::runtime_error("--image-key requires a key value");
-            args.imageKey = argv[++i];
+            throw std::runtime_error("Supply package image keys through ANYPS5_IMAGE_KEY in the extractor environment; command-line secrets are not accepted");
         } else if (arg == "--staging-dir") {
             if (i + 1 >= argc)
                 throw std::runtime_error("--staging-dir requires a directory path");
@@ -81,9 +77,9 @@ Args ParseArgs(int argc, char* argv[]) {
 
     if (args.inputPath.empty() || args.outputPath.empty())
         throw std::runtime_error(
-            "Usage: relinker [--windows] [--windows-diagnostics] [--windows-gui] [--skip-syscall-check] [--skip-sce-module] [--exclude-sce-module <file>]... [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] [--extractor <cmd>] [--passcode <pass>] [--image-key <key>] [--staging-dir <dir>] <input.elf|eboot.bin|app_dir|package.pkg> <output.elf|output.exe>\n"
+            "Usage: relinker [--windows] [--windows-diagnostics] [--windows-gui] [--skip-syscall-check] [--skip-sce-module] [--exclude-sce-module <file>]... [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] [--extractor <path>] [--staging-dir <dir>] <input.elf|eboot.bin|app_dir|package.pkg> <output.elf|output.exe>\n"
             "Supports raw ELF, plaintext PS4/PS5 SELF, extracted app directories, and staged PS4/PS5 PKG/fPKG containers.\n"
-            "Protected retail content requires lawfully supplied decryption material (--image-key)."
+            "The extractor inherits ANYPS5_PASSCODE or ANYPS5_IMAGE_KEY if lawful decryption material is required."
         );
 
     return args;

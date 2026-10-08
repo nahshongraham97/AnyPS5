@@ -1,5 +1,6 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "prx/libkernel/File/include/FileFlags.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 
 #include <array>
 #include <chrono>
@@ -13,6 +14,7 @@
 extern "C" {
 int APS5_VABI sceKernelOpen(const char*, int, std::uint16_t);
 int APS5_VABI sceKernelGetdents(int, char*, int);
+int APS5_VABI sceKernelClose(int);
 int APS5_VABI close_nid_postfix(int);
 int APS5_VABI _close_nid_postfix(int);
 }
@@ -61,6 +63,7 @@ int main() {
 
     VerifyCloseReuse(root, "close", false);
     VerifyCloseReuse(root, "underscore-close", true);
+    Require(sceKernelClose(-1) == SCE_KERNEL_ERROR_EBADF);
 
     std::filesystem::remove_all(root);
 }

@@ -1,0 +1,106 @@
+name: Local package diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_path:
+        description: Absolute path to a package on the dedicated Windows runner
+        required: true
+        default: 'C:\Users\nahsh\Downloads\sos\UP9000-PPSA28997_00-SONSOFSPARTAPS50.pkg'
+      repo_path:
+        description: Existing AnyPS5 checkout on the runner
+        required: true
+        default: 'C:\Users\nahsh\AnyPS5'
+      app_root:
+        description: Already extracted app0 folder; leave blank for package header and unit tests only
+        required: false
+        default: 'C:\Users\nahsh\AnyPS5\build\sos\app0'
+      run_native_exe:
+        description: Run the relinked executable for up to 90 seconds
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-package-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, X64, anyps5-local]
+    timeout-minutes: 180
+    env:
+      PACKAGE_PATH: ${{ inputs.package_path }}
+      REPO_PATH: ${{ inputs.repo_path }}
+      APP_ROOT: ${{ inputs.app_root }}
+      RUN_NATIVE: ${{ inputs.run_native_exe }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Validate runner inputs and inspect package header
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $logDir = Join-Path $env:RUNNER_TEMP 'anyps5-local-diagnostics'
+          New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+          "Runner=$env:COMPUTERNAME" | Set-Content (Join-Path $logDir 'environment.txt')
+          if (-not (Test-Path -LiteralPath $env:REPO_PATH -PathType Container)) { throw "Checkout unavailable: $env:REPO_PATH" }
+          if (-not (Test-Path -LiteralPath $env:PACKAGE_PATH -PathType Leaf)) { throw "Package unavailable to runner account: $env:PACKAGE_PATH" }
+          $file = Get-Item -LiteralPath $env:PACKAGE_PATH
+          $stream = [System.IO.File]::OpenRead($file.FullName)
+          try {
+            $header = New-Object byte[] 64
+            $read = $stream.Read($header, 0, $header.Length)
+            if ($read -lt 4) { throw 'Truncated package' }
+            $magic = [System.Text.Encoding]::ASCII.GetString($header, 0, 4)
+            if ($magic -notin @("`u{7f}FIH", "`u{7f}CNT")) { throw "Unexpected package magic: $($header[0..3] -join ',')" }
+            @("Package=$($file.FullName)", "Bytes=$($file.Length)", "MagicHex=$([Convert]::ToHexString($header, 0, 4))", "Header64=$([Convert]::ToHexString($header, 0, $read))") |
+              Add-Content (Join-Path $logDir 'environment.txt')
+          } finally { $stream.Dispose() }
+          "LOG_DIR=$logDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build and run package, SELF and input tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location -LiteralPath $env:REPO_PATH
+          git rev-parse HEAD | Tee-Object -FilePath (Join-Path $env:LOG_DIR 'commit.txt')
+          git status --short --branch | Tee-Object -FilePath (Join-Path $env:LOG_DIR 'status.txt')
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON 2>&1 | Tee-Object -FilePath (Join-Path $env:LOG_DIR 'configure.txt')
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed: $LASTEXITCODE" }
+          cmake --build build --target relinker libs input_detector_tests package_staging_tests self_image_tests --parallel 4 2>&1 | Tee-Object -FilePath (Join-Path $env:LOG_DIR 'build.txt')
+          if ($LASTEXITCODE -ne 0) { throw "Build failed: $LASTEXITCODE" }
+          ctest --test-dir build --output-on-failure -R '^(input_detector|package_staging|self_image|input_magic)$' 2>&1 | Tee-Object -FilePath (Join-Path $env:LOG_DIR 'ctest.txt')
+          if ($LASTEXITCODE -ne 0) { throw "Focused tests failed: $LASTEXITCODE" }
+
+      - name: Relink extracted app and capture runtime
+        if: ${{ inputs.app_root != '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath $env:APP_ROOT -PathType Container)) { throw "Extracted app0 unavailable: $env:APP_ROOT" }
+          $eboot = Join-Path $env:APP_ROOT 'eboot.bin'
+          if (-not (Test-Path -LiteralPath $eboot -PathType Leaf)) { throw "No extracted eboot.bin: $eboot" }
+          $relinker = Join-Path $env:REPO_PATH 'build\core\relinker\relinker.exe'
+          $output = Join-Path (Split-Path -Parent $env:APP_ROOT) 'SonsOfSparta-probe.exe'
+          & $relinker --windows --windows-diagnostics $eboot $output 2>&1 | Tee-Object -FilePath (Join-Path $env:LOG_DIR 'relinker.txt')
+          if ($LASTEXITCODE -ne 0) { throw "Relinker failed: $LASTEXITCODE" }
+          if ($env:RUN_NATIVE -eq 'true') {
+            $stdout = Join-Path $env:LOG_DIR 'native-stdout.txt'
+            $stderr = Join-Path $env:LOG_DIR 'native-stderr.txt'
+            $process = Start-Process -FilePath $output -WorkingDirectory (Split-Path -Parent $output) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+            try {
+              if (-not $process.WaitForExit(90000)) { $process.Kill(); 'Timed out after 90 seconds' | Add-Content (Join-Path $env:LOG_DIR 'native-status.txt') }
+              else { "ExitCode=$($process.ExitCode)" | Add-Content (Join-Path $env:LOG_DIR 'native-status.txt') }
+            } finally { $process.Dispose() }
+          }
+
+      - name: Upload diagnostic text only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-package-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/anyps5-local-diagnostics/*.txt
+          if-no-files-found: warn
+          retention-days: 7
