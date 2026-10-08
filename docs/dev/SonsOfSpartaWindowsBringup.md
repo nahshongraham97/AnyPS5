@@ -533,6 +533,21 @@ architecturally resolved:
      (100 Hz on AMD RX 6800 XT) and the synthetic 59.94 Hz VBlank loop in `VideoOutDriver` when running
      `VK_PRESENT_MODE_FIFO_KHR` with `minImageCount = 2`.
 
+9. **Vulkan Swapchain Triple Buffering & Mailbox Present Mode**:
+   - In `VulkanDevice.cpp`, upgraded `minImageCount` to triple buffering (`surface.minImageCount + 1`, bounded by `surface.maxImageCount`).
+   - Query available surface present modes and prefer `VK_PRESENT_MODE_MAILBOX_KHR` (falling back to `VK_PRESENT_MODE_FIFO_KHR`, overridable via `APS5_PRESENT_MODE=fifo`).
+   - Sized `state->presentSlots` to match swapchain capacity (`std::max(FlipInFlight() + 1, static_cast<std::size_t>(minImageCount))`), completely eliminating VSync lock contention and 12.5 FPS / 7.5 FPS quantization beats.
+   - Dynamically handle window resize in `VulkanDevice::Resize` to preserve triple buffering and allocate any missing present slots/command buffers.
+
+10. **Thread-Safe Multi-Threaded Positioned I/O (`NativePositioned`)**:
+   - In `Stdio.cpp`, added a 64-way descriptor mutex array guarding `NativePositioned` on Windows.
+   - Prevents multi-threaded asset stream readers (`archives_assets_all.bundle`, `defaultlocalgroup_assets_.bundle`) from racing on synchronous file handle pointers during concurrent `pread`/`ReadFile` operations.
+
+11. **Save Slot 0 State & Boot Flow Distinction**:
+   - **Clean Boot / First Boot (Slot 0 absent)**: Unity detects no existing save, decodes and plays the 665-frame intro movie (`sharedassets1.resource`), opens the Main Menu, and progresses cleanly into cutscenes and Cyclops combat.
+   - **Resume Boot (Slot 0 present in `_sd/GOWSOSSAVE0/`)**: Unity detects existing save data, skips the intro logo movie, and streams 180+ MB of AssetBundles in the background while holding the Sony splash screen.
+   - Backed up `_sd/GOWSOSSAVE0` to `_sd/GOWSOSSAVE0.bak` so the user can test both clean boots (verifying the title screen and bloom fixes) and saved resumes.
+
 ## Verification checklist for this checkpoint
 
 - `git diff --check` reports no whitespace errors.

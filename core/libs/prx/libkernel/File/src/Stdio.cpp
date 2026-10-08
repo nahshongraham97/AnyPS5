@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <limits>
+#include <mutex>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/GuestArena.hpp"
@@ -101,6 +103,8 @@ static std::int64_t NativePositioned(int descriptor, void* buf, std::size_t nbyt
     if (nbytes > static_cast<std::size_t>(std::numeric_limits<DWORD>::max())) {
         throw std::runtime_error("NativePositioned: nbytes exceeds platform limit");
     }
+    static std::array<std::mutex, 64> descriptorMutexes;
+    std::lock_guard lock(descriptorMutexes[static_cast<unsigned>(descriptor) % descriptorMutexes.size()]);
     const auto handle = reinterpret_cast<HANDLE>(::_get_osfhandle(descriptor));
     if (handle == INVALID_HANDLE_VALUE) {
         errno = EBADF;

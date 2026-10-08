@@ -169,6 +169,7 @@ struct VulkanDevice::State {
     void* window = nullptr;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
     VkExtent2D extent{};
     std::vector<VkImage> images;
     VkFence acquireFence = VK_NULL_HANDLE;
@@ -1139,9 +1140,25 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         std::vector<VkSurfaceFormatKHR> formats(formatCount);
         check(getFormats(selected, state->surface, &formatCount, formats.data()), "vkGetPhysicalDeviceSurfaceFormatsKHR");
         require(std::any_of(formats.begin(), formats.end(), [](const auto& format) { return format.format == VK_FORMAT_B8G8R8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR; }), "BGRA8 sRGB-nonlinear surface format is unavailable");
+        std::uint32_t presentModeCount = 0;
+        auto getPresentModes = state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfacePresentModesKHR>("vkGetPhysicalDeviceSurfacePresentModesKHR");
+        check(getPresentModes(selected, state->surface, &presentModeCount, nullptr), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+        check(getPresentModes(selected, state->surface, &presentModeCount, presentModes.data()), "vkGetPhysicalDeviceSurfacePresentModesKHR");
+        state->presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        const char* forcedPresentMode = std::getenv("APS5_PRESENT_MODE");
+        if (forcedPresentMode == nullptr || std::strcmp(forcedPresentMode, "fifo") != 0) {
+            if (std::find(presentModes.begin(), presentModes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != presentModes.end()) {
+                state->presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+            }
+        }
+        std::uint32_t minImageCount = surface.minImageCount + 1;
+        if (surface.maxImageCount > 0 && minImageCount > surface.maxImageCount) {
+            minImageCount = surface.maxImageCount;
+        }
         VkSwapchainCreateInfoKHR swapchain{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
         swapchain.surface = state->surface;
-        swapchain.minImageCount = surface.minImageCount;
+        swapchain.minImageCount = minImageCount;
         swapchain.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
         swapchain.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
         swapchain.imageExtent = state->extent;
@@ -1150,7 +1167,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         swapchain.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         swapchain.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         swapchain.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        swapchain.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        swapchain.presentMode = state->presentMode;
         swapchain.clipped = VK_FALSE;
         check(state->DeviceFunction<PFN_vkCreateSwapchainKHR>("vkCreateSwapchainKHR")(state->device, &swapchain, nullptr, &state->swapchain), "vkCreateSwapchainKHR");
         std::uint32_t imageCount = 0;
@@ -1158,7 +1175,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         check(getImages(state->device, state->swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
         state->images.resize(imageCount);
         check(getImages(state->device, state->swapchain, &imageCount, state->images.data()), "vkGetSwapchainImagesKHR");
-        APS5_LOG_OUT("Swapchain created swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, imageCount);
+        APS5_LOG_OUT("Swapchain created swapchain=%p extent=%ux%u images=%u mode=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, imageCount, static_cast<unsigned>(state->presentMode));
         VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         const auto createFence = state->DeviceFunction<PFN_vkCreateFence>("vkCreateFence");
         check(createFence(state->device, &fence, nullptr, &state->acquireFence), "vkCreateFence");
@@ -1168,7 +1185,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         allocation.commandPool = state->pool;
         allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocation.commandBufferCount = 1;
-        state->presentSlots.resize(FlipInFlight() + 1);
+        state->presentSlots.resize(std::max(FlipInFlight() + 1, static_cast<std::size_t>(minImageCount)));
         for (auto& slot : state->presentSlots) {
             check(createFence(state->device, &fence, nullptr, &slot.fence), "vkCreateFence present");
             check(state->DeviceFunction<PFN_vkAllocateCommandBuffers>("vkAllocateCommandBuffers")(state->device, &allocation, &slot.commands), "vkAllocateCommandBuffers");
@@ -1797,9 +1814,13 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     }
     require(width >= surface.minImageExtent.width && width <= surface.maxImageExtent.width && height >= surface.minImageExtent.height && height <= surface.maxImageExtent.height, "unsupported resized output extent");
     require((surface.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0 && (surface.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) != 0 && (surface.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0, "resized surface capabilities are unsupported");
+    std::uint32_t minImageCount = surface.minImageCount + 1;
+    if (surface.maxImageCount > 0 && minImageCount > surface.maxImageCount) {
+        minImageCount = surface.maxImageCount;
+    }
     VkSwapchainCreateInfoKHR create{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     create.surface = state->surface;
-    create.minImageCount = surface.minImageCount;
+    create.minImageCount = minImageCount;
     create.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     create.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     create.imageExtent = {width, height};
@@ -1808,7 +1829,7 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     create.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     create.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     create.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    create.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    create.presentMode = state->presentMode;
     create.oldSwapchain = state->swapchain;
     state->retiredSwapchains.reserve(state->retiredSwapchains.size() + 1);
     VkSwapchainKHR replacement = VK_NULL_HANDLE;
@@ -1823,7 +1844,21 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     check(getImages(state->device, replacement, &count, state->images.data()), "vkGetSwapchainImagesKHR resize");
     state->images.resize(count);
     state->rendered.assign(count, VK_NULL_HANDLE);
-    APS5_LOG_OUT_DEBUG("Resize complete swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, count);
+    if (count > state->presentSlots.size()) {
+        const auto oldSize = state->presentSlots.size();
+        state->presentSlots.resize(count);
+        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        const auto createFence = state->DeviceFunction<PFN_vkCreateFence>("vkCreateFence");
+        VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocation.commandPool = state->pool;
+        allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocation.commandBufferCount = 1;
+        for (std::size_t i = oldSize; i < count; ++i) {
+            check(createFence(state->device, &fence, nullptr, &state->presentSlots[i].fence), "vkCreateFence present resize");
+            check(state->DeviceFunction<PFN_vkAllocateCommandBuffers>("vkAllocateCommandBuffers")(state->device, &allocation, &state->presentSlots[i].commands), "vkAllocateCommandBuffers resize");
+        }
+    }
+    APS5_LOG_OUT_DEBUG("Resize complete swapchain=%p extent=%ux%u images=%u mode=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, count, static_cast<unsigned>(state->presentMode));
 }
 
 bool VulkanDevice::Presentable() const {
