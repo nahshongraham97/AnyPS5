@@ -416,7 +416,11 @@ int APS5_VABI sceKernelCheckReachability(const char* path) {
 
 int APS5_VABI sceKernelFstat(int d, FileStat* sb) {
     if (sb == nullptr) throw std::invalid_argument("sceKernelFstat: sb is null");
-    if (!File::FillFileStatFromDescriptor(d, sb)) return SceErrorFromErrno(errno);
+    if (!File::FillFileStatFromDescriptor(d, sb)) {
+        APS5_LOG_OUT("fd=%d FAILED errno=%d", d, errno);
+        return SceErrorFromErrno(errno);
+    }
+    APS5_LOG_OUT("fd=%d mode=0%o size=%lld", d, static_cast<unsigned>(sb->st_mode), static_cast<long long>(sb->st_size));
     return 0;
 }
 

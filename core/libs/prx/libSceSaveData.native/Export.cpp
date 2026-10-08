@@ -470,6 +470,7 @@ static int mount3(const SaveDataMount3* mount, SaveDataMountResult* mount_result
     if (slot == -1) {
         return SAVE_DATA_ERROR_MOUNT_FULL;
     }
+    const bool created = !exists && (create || create2);
     if (create || create2) {
         std::filesystem::create_directories(real_path);
     }
@@ -482,7 +483,7 @@ static int mount3(const SaveDataMount3* mount, SaveDataMountResult* mount_result
     g_slots[slot].real_path = real_path;
     std::memcpy(mount_result->mount_point.data, mountPoint.c_str(), mountPoint.size() + 1);
     mount_result->required_blocks = 0;
-    mount_result->mount_status = (create || create2) ? 1u : 0u;
+    mount_result->mount_status = created ? 1u : 0u;
     return SAVE_DATA_OK;
 }
 

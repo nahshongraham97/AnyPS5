@@ -31,6 +31,11 @@ static void CopyNativeStat(const NativeStat& st, FileStat* sb) {
     sb->st_mode = static_cast<std::uint16_t>(st.st_mode);
     sb->st_size = static_cast<std::int64_t>(st.st_size);
 #ifdef _WIN32
+    if ((sb->st_mode & 0xF000) == 0x4000) {
+        sb->st_mode |= 0755;
+    } else if ((sb->st_mode & 0xF000) == 0x8000) {
+        sb->st_mode |= (st.st_mode & 0200) ? 0644 : 0444;
+    }
     sb->st_dev = static_cast<std::uint32_t>(st.st_dev);
     sb->st_ino = static_cast<std::uint32_t>(st.st_ino);
     sb->st_nlink = static_cast<std::uint16_t>(st.st_nlink);

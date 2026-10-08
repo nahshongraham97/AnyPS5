@@ -104,8 +104,16 @@ static int SceErrorFromErrno(int error) {
 extern "C" {
 
 int APS5_VABI sceKernelOpen(const char* path, int flags, std::uint16_t mode) {
-    APS5_LOG_OUT("path=%s flags=0x%X nativeFlags=0x%X mode=0%o", path, flags, MapFlags(flags), mode);
     auto native = ResolvePath_nid_no_patch(path);
+#ifdef _WIN32
+    if (flags & SCE_KERNEL_O_DIRECTORY) {
+        std::error_code error;
+        if (!std::filesystem::is_directory(native, error)) {
+            APS5_LOG_OUT("path=%s flags=0x%X native='%s' ENOTDIR", path, flags, native.string().c_str());
+            return SceErrorFromErrno(20);
+        }
+    }
+#endif
     int fd = NativeOpen(native, MapFlags(flags), mode);
 #ifdef _WIN32
     if (fd < 0 && errno != ENOENT) {
@@ -114,14 +122,19 @@ int APS5_VABI sceKernelOpen(const char* path, int flags, std::uint16_t mode) {
     }
 #endif
     if (fd < 0) {
+        APS5_LOG_OUT("path=%s flags=0x%X nativeFlags=0x%X mode=0%o -> native='%s' FAILED errno=%d (0x%08X)",
+            path, flags, MapFlags(flags), mode, native.string().c_str(), errno, SceErrorFromErrno(errno));
         return SceErrorFromErrno(errno);
     }
+    APS5_LOG_OUT("path=%s flags=0x%X nativeFlags=0x%X mode=0%o -> native='%s' fd=%d",
+        path, flags, MapFlags(flags), mode, native.string().c_str(), fd);
     if ((flags & SCE_KERNEL_O_ACCMODE) != SCE_KERNEL_O_RDONLY || (flags & (SCE_KERNEL_O_CREAT | SCE_KERNEL_O_TRUNC)))
         RecordWrittenPath_nid_no_patch(native);
     return fd;
 }
 
 int APS5_VABI sceKernelClose(int d) {
+    APS5_LOG_OUT("fd=%d", d);
 #ifdef _WIN32
     File::ForgetDirectoryDescriptor(d);
 #endif
@@ -142,6 +155,7 @@ std::int64_t APS5_VABI sceKernelRead(int d, void* buf, std::size_t nbytes) {
     if (n < 0) {
         throw std::runtime_error(std::string(__func__) + ": read failed, fd=" + std::to_string(d) + ", errno=" + std::to_string(errno));
     }
+    APS5_LOG_OUT("fd=%d requested=%zu read=%d", d, nbytes, n);
     return static_cast<std::int64_t>(n);
 }
 
@@ -153,6 +167,7 @@ std::int64_t APS5_VABI sceKernelWrite(int d, const void* buf, std::size_t nbytes
     if (n < 0) {
         throw std::runtime_error(std::string(__func__) + ": write failed, fd=" + std::to_string(d) + ", errno=" + std::to_string(errno));
     }
+    APS5_LOG_OUT("fd=%d requested=%zu written=%d", d, nbytes, n);
     return static_cast<std::int64_t>(n);
 }
 
@@ -177,9 +192,12 @@ int APS5_VABI sceKernelStat(const char* path, FileStat* sb) {
     const auto native = ResolvePath_nid_no_patch(path);
     std::error_code error;
     if (!std::filesystem::exists(native, error)) {
+        APS5_LOG_OUT("path=%s -> native='%s' NOT_FOUND", path, native.string().c_str());
         return SceErrorFromErrno(2);
     }
     File::FillFileStat(native, sb);
+    APS5_LOG_OUT("path=%s -> native='%s' mode=0%o size=%lld",
+        path, native.string().c_str(), static_cast<unsigned>(sb->st_mode), static_cast<long long>(sb->st_size));
     return 0;
 }
 
