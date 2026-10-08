@@ -102,6 +102,13 @@ public:
         }
         request->generation = cfg->generation;
         request->flipRate = cfg->flipRate;
+        const char* forceRateStr = std::getenv("APS5_FLIP_RATE");
+        const bool unlockFps = std::getenv("APS5_UNLOCK_FPS") != nullptr;
+        if (forceRateStr != nullptr) {
+            request->flipRate = std::clamp(std::atoi(forceRateStr), 0, 2);
+        } else if (unlockFps) {
+            request->flipRate = 0;
+        }
         if (info.index >= 0) request->reuseTicket = cfg->bufferReuse[info.index].Reserve();
         ++queue->reservations;
         ++cfg->flipStatus.flipPendingNum;
@@ -387,7 +394,14 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         timing.Mark("config_mutex_wait");
         checkConfig(*req.cfg);
         require(req.ready && !req.terminal && req.generation == req.cfg->generation, "stale or incomplete flip request");
-        const auto interval = static_cast<uint64_t>(req.flipRate + 1);
+        uint64_t interval = static_cast<uint64_t>(req.flipRate + 1);
+        const char* forceRateStr = std::getenv("APS5_FLIP_RATE");
+        const bool unlockFps = std::getenv("APS5_UNLOCK_FPS") != nullptr;
+        if (forceRateStr != nullptr) {
+            interval = static_cast<uint64_t>(std::clamp(std::atoi(forceRateStr), 0, 2) + 1);
+        } else if (unlockFps) {
+            interval = 1;
+        }
         require(req.cfg->lastFlipVblank <= std::numeric_limits<uint64_t>::max() - interval, "flip interval overflow");
         const auto target = req.cfg->lastFlipVblank + interval;
         timing.Mark("validate");
@@ -536,11 +550,25 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
 }
 
 void VideoOutDriver::vblankLoop(std::stop_token token) {
-    using Frame = std::chrono::duration<int64_t, std::ratio<1001, 60000>>;
+    const int vblankRate = [] {
+        const char* env = std::getenv("APS5_VBLANK_RATE");
+        if (env != nullptr) {
+            int r = std::atoi(env);
+            if (r >= 30 && r <= 360) {
+                std::fprintf(stderr, "[videoout] vblank rate configured to %d Hz\n", r);
+                std::fflush(stderr);
+                return r;
+            }
+        }
+        return 60;
+    }();
+    const auto framePeriod = (vblankRate == 60)
+        ? std::chrono::nanoseconds(16683333)
+        : std::chrono::nanoseconds(1000000000ULL / vblankRate);
     const auto start = std::chrono::steady_clock::now();
     try {
         for (int64_t frame = 1; !token.stop_requested(); ++frame) {
-            const auto next = start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(Frame(frame));
+            const auto next = start + (framePeriod * frame);
             {
                 std::unique_lock lock(flipQueue->mutex);
                 flipQueue->changed.wait_until(lock, next, [&] { return token.stop_requested() || flipQueue->failure; });

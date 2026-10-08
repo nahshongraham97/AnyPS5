@@ -108,7 +108,8 @@ void Driver::Present(const PresentationWindow& window, const DisplayBuffer* buff
                 submitted = false;
             }
         }
-        if (trailing) {
+        static const bool syncPresent = std::getenv("APS5_SYNC_PRESENT") != nullptr;
+        if (trailing && (syncPresent || inFlight == 0)) {
             waitedMs += presenting->FinishPresent();
             timing.Mark("render_fence_wait");
         }

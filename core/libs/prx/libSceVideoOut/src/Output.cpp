@@ -96,7 +96,20 @@ int APS5_VABI sceVideoOutSetFlipRate(int handle, int rate) try {
     }
     std::lock_guard lock(cfg->mutex);
     cfg->Check();
-    cfg->flipRate = rate;
+    int effectiveRate = rate;
+    const char* forceRateStr = std::getenv("APS5_FLIP_RATE");
+    const bool unlockFps = std::getenv("APS5_UNLOCK_FPS") != nullptr;
+    if (forceRateStr != nullptr) {
+        effectiveRate = std::clamp(std::atoi(forceRateStr), 0, 2);
+        std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: requested=%d, OVERRIDDEN to %d via APS5_FLIP_RATE\n", rate, effectiveRate);
+    } else if (unlockFps) {
+        effectiveRate = 0;
+        std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: requested=%d, UNLOCKED to 0 (60Hz flip) via APS5_UNLOCK_FPS\n", rate);
+    } else {
+        std::fprintf(stderr, "[videoout] sceVideoOutSetFlipRate: rate=%d\n", rate);
+    }
+    std::fflush(stderr);
+    cfg->flipRate = effectiveRate;
     return 0;
 } catch (const ProcessShutdown&) {
     LibcAwaitExit_nid_postfix();
