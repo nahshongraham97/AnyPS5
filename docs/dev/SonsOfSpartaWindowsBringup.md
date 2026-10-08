@@ -469,31 +469,58 @@ sceKernelOpen path=/app0/Media/StreamingAssets/Scenes/River.bank
 sceKernelOpen path=/savedata0/GoW_SoS999.dat
 ```
 
+## Rendering and performance pacing resolution
+
+At this milestone, both the in-game rendering artifacts and the frame pacing bottleneck have been
+architecturally resolved:
+
+1. **Rendering artifacts (splotchy / LCD-bleed like blooming white/yellow blobs)**:
+   - **Root Cause**: The AGC state decoder previously rejected and skipped any draw setting
+     `DB_RENDER_CONTROL` `STENCIL_CLEAR_ENABLE` (bit 1, register `0x0 = 0x00000022`), logging:
+     `[gpu] skipped draw: depth/stencil clear, copy, resummarize or decompress draws (DB_RENDER_CONTROL) is unsupported`.
+     *Sons of Sparta* begins every frame with such a draw into its 3840x2160 B10G11R11 scene render
+     target to clear the background. When this draw was skipped, the render target retained stale
+     pixels, and subsequent `DST_COLOR`/`ONE` additive light sprites compounded the previous frame's
+     values across frames until they saturated into expanding, over-exposed white/gray clouds with
+     burnt yellow/brown borders.
+   - **Architectural Resolution (PR #1479)**: The draw is now rasterized like any standard draw, with
+     both stencil face states replaced by compare `ALWAYS`, fail/pass/depth-fail `REPLACE`, reference
+     `DB_STENCIL_CLEAR`, and write mask `0xff`. All covered samples receive the clear value while the
+     draw's color output is preserved and written to the color attachment.
+
+2. **Frame pacing bottleneck (~20 FPS lock on Windows)**:
+   - **Root Cause**: An idle queue worker with completions pending waited on its condition variable
+     for 1 ms before each reap (`changed.wait_for(lock, std::chrono::milliseconds(1), ready)`). On
+     Windows with MinGW, `std::condition_variable::wait_for` uses `winpthreads`, which maps timed
+     waits to Windows timer interrupts (`GetTickCount64`) operating on a default 15.6 ms resolution.
+     Deferred end-of-pipe interrupts thus reached the guest thread ~15 ms late on every cycle, capping
+     the frame rate to 20–30 FPS.
+   - **Architectural Resolution (PR #1474)**: Replaced the condition variable timed wait on Windows
+     with `PollSleep()`, allowing the worker to reap completions with sub-millisecond precision.
+
+3. **Mutex destruction compliance (PR #1483)**:
+   - `scePthreadMutexDestroy` now returns `SCE_KERNEL_ERROR_EBUSY` when destroying a locked mutex
+     in accordance with FreeBSD libthr / PS5 libkernel semantics, preventing aborts during title intro.
+
+4. **Wave32 AMD Driver NaN comparison compliance (PR #1473)**:
+   - Emits `FPOrdNotEqual32` through bitwise integer NaN checks (`(bits(a) & 0x7fffffff) <= 0x7f800000`)
+     avoiding the AMD Windows driver bug where ordered float compares feed wave32 ballots.
+
+5. **Transient Surface Aliasing & Depth Memory Reuse (PR #1494 & #1495)**:
+   - Prefers pending images whose extent matches the sampled surface exactly over older mip chains.
+   - Treats differently shaped views of a depth surface's address as memory reuse rather than throwing
+     depth-plane format mismatch errors.
+
 ## Verification checklist for this checkpoint
 
 - `git diff --check` reports no whitespace errors.
-- The dynamic-loader regression builds and passes.
-- The patched `libkernel.prx` is copied to the preserved stage.
-- A normal title run lasts beyond the former FMOD failure point.
-- The title displays the logo movies.
-- Master, strings, scene, and cue banks are opened through guest paths.
-- The real FMOD lookup returns success for `bus:/Dialogue`.
-- Save data is created under `_sd`, then successfully read on a subsequent run.
-- Generated content and run logs remain outside the commit.
-
-## Next work, in order
-
-1. Obtain the exact managed exception type, message, and path from the `SaveDataProcessQueue` fault.
-   The best next implementation is diagnostics/symbolization, not an exception swallow.
-2. Map the four relevant IL2CPP RVAs to method definitions using `global-metadata.dat` and the code
-   registration tables, or capture the managed exception object before the terminal raise.
-3. Compare the failing `FileStream` constructor's requested mode/access/share/options with the guest
-   libc flags and return values.
-4. Add a minimal regression test for any confirmed filesystem or save-data semantic mismatch before
-   changing it.
-5. Rerun through the logo sequence and verify the persisted global save remains readable.
-6. Only after the save worker is clean, profile the large run-to-run frame-rate variation (roughly
-   19–21 FPS versus roughly 40 FPS) with comparable cache, logging, and scene conditions.
+- All unit tests passing (`guest_kernel_errors`, `guest_dynamic_loader`, `guest_savedata_*`, `relinker`, `package_staging`).
+- Upstream `boykopovar/AnyPS5` through commit `084aeeb6` cleanly merged.
+- PRs #1479, #1474, #1483, #1473, #1494, and #1495 merged and verified.
+- The title boots cleanly past the logos, main menu, credits, cutscenes, and into the Cyclops boss battle.
+- In-game bloom/lighting saturation is resolved; full geometry, characters, and textures are visible.
+- Frame pacing operates smoothly without the 15.6 ms winpthreads sleep penalty.
+- Generated content, save data, and runtime logs remain outside Git.
 
 ## Things that must not be undone
 
@@ -502,11 +529,5 @@ sceKernelOpen path=/savedata0/GoW_SoS999.dat
   investigation is active.
 - Do not replace the FMOD wrapper with a dummy success or fake bus pointer.
 - Do not globally suppress `Il2CppExceptionWrapper` or `sceKernelDebugRaiseException`.
-- Do not infer that `0xC000001D` means a CPU-instruction compatibility problem when it follows the
-  IL2CPP managed-exception path.
-- Do not restage the entire extracted package merely to investigate the current save-worker fault.
+- Do not revert `DB_RENDER_CONTROL` `STENCIL_CLEAR_ENABLE` rasterization.
 - Do not mix AnyPS5's MinGW build with the unrelated KytyPS5 or SharpEmu toolchains.
-
-This checkpoint is the first demonstrated Windows run of this title in the fork that reaches visible
-logo playback and later Unity/game services with real middleware data. The remaining problem is
-later, narrower, and now reproducible from a preserved baseline.
