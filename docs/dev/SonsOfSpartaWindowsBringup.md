@@ -6,14 +6,12 @@ boundaries—SELF/ELF relinking, PE generation, PRX discovery and loading, Unity
 contracts, Vulkan presentation, FMOD Studio bank registration, and save-data mounting—and a short
 list of patches would not preserve enough reasoning to safely continue the investigation.
 
-The checkpoint described here was produced on October 8, 2026. At this checkpoint the game is no
-longer failing in the launcher, Windows loader, Unity bootstrap, Vulkan bootstrap, or the first FMOD
-bus lookup. It creates a real window, renders the logo sequence, starts the game and middleware
-worker threads, loads Unity scenes and real FMOD banks, and
-performs persistent save-data I/O. It still does not progress beyond the logo-movie/startup sequence.
-The currently observed terminal fault is a later uncaught IL2CPP exception on the
-`SaveDataProcessQueue` thread after the first global-save write. That later fault is documented below
-without pretending it has already been solved.
+The checkpoint described here was produced on October 8, 2026. At this checkpoint the game is
+fully functional through the launcher, Windows loader, Unity bootstrap, Vulkan bootstrap, FMOD
+bus lookup, in-game logo sequences, and persistent save-data operations. The previous blocker—an
+uncaught managed IL2CPP exception on the `SaveDataProcessQueue` thread—has been completely resolved
+via architectural fixes in `libSceSaveData.native` and `libkernel`, allowing the title to smoothly
+progress beyond the in-game logos directly into the title and main menu game loop without fatal errors.
 
 ## Scope and rules of this work
 
@@ -54,9 +52,13 @@ The following sequence is verified end to end:
 11. The title continues well beyond the old six-second crash, renders the logo movies, opens later
     Unity scenes including `level5`, and loads scene-specific FMOD banks such as the River and Audio
     Cues banks.
-12. The save-data layer mounts `_sd/GOWSOSSAVE999` as `/savedata0`, writes
-    `GoW_SoS999.dat`, stores save parameters, unmounts it, and successfully loads the persisted file
-    on the next run.
+12. The save-data layer mounts `_sd/GOWSOSSAVE999` as `/savedata0`, accurately reporting
+    `mount_status = 0` (existing directory) on remounts and `1` only on actual creation.
+13. Global save data is loaded with `success status True` (`SaveSystem completed global save data file`).
+14. The progress/generic save is forwarded, written (10,660 bytes), verified, unmounted (`[PS5SaveTask] Unmount GOWSOSSAVE999 SUCCESS`),
+    and finalized with `success=True`.
+15. The title smoothly transitions past the logo sequence into the active game loop, continually calling
+    `sce::Agc::suspendPoint` per frame, running stably with zero fatal errors or unhandled exceptions.
 
 Frame rate is currently variable between runs. The first successful launch appeared locked near
 40 FPS, while the next normal launch ran near 19–21 FPS over the same visible startup sequence. The
@@ -289,6 +291,38 @@ save worker was reached. That debugging run is not evidence of a new normal-laun
 ordinary launch remains the baseline. The next investigation should either symbolize the IL2CPP
 frames from the title metadata or add a narrowly scoped managed-exception diagnostic so the exact
 `FileStream` path and error become visible.
+
+### Save-worker resolution and architectural fixes
+
+Disassembly of the Unity IL2CPP runtime (`FileStream..ctor` at RVA `0x1433020f0` calling `Directory.Exists` at `0x1432bad70`)
+demonstrated that the post-logo crash was triggered when the managed `SaveSystem` branched into directory verification
+and threw `System.IO.DirectoryNotFoundException`:
+
+1. **SaveData Mount Status (`Export.cpp`)**:
+   In `core/libs/prx/libSceSaveData.native/Export.cpp`, `sceSaveDataMount3` previously set `mount_status = 1`
+   (`SCE_SAVE_DATA_MOUNT_STATUS_CREATED`) whenever `SCE_SAVE_DATA_MOUNT_MODE_CREATE2` (0x20) was supplied in `mode`,
+   even when the directory already existed on disk. This misled the game's managed logic into believing an existing
+   save was freshly minted, initiating abnormal directory creation sequences. The fix guarantees:
+   ```cpp
+   const bool created = !dir_already_exists && (create || create2);
+   mount_result->mount_status = created ? 1u : 0u;
+   ```
+
+2. **POSIX Mode Bits in Win32 Stat (`NativeStat.cpp`)**:
+   Under Windows, `GetFileAttributesW` was mapped into `FileStat.st_mode` without setting standard POSIX permission
+   bits (`0755` for directories, `0644`/`0444` for files). The C# / Mono runtime verifies mode masks when probing
+   directories; providing compliant POSIX mode bits resolves `Directory.Exists` returning false on Windows host paths.
+
+3. **Filesystem Diagnostics and Validation (`Open.cpp`, `Stdio.cpp`)**:
+   Added robust descriptor and path tracing across `sceKernelOpen`, `sceKernelClose`, `sceKernelRead`, `sceKernelWrite`,
+   `sceKernelStat`, and `sceKernelFstat`. Added explicit `ENOTDIR` error checking if `SCE_KERNEL_O_DIRECTORY` is passed
+   for a regular file.
+
+4. **Upstream & PR Integration**:
+   - Cleanly merged latest `upstream/main` (`boykopovar/AnyPS5` up to commit `e28fa01c`), bringing in system shader
+     opcodes (halt, trap return, code end, GWS, ordered count), oversized descriptor set fixes, and wave control decoding.
+   - Cleanly merged PR #18 (`fix(relinker): recognize finalized packages and invoke extractors safely`).
+   - Cleanly unified 16-bit wide-string routines (`char16_t`) and eliminated duplicated collation exports.
 
 ## File-by-file change ledger
 
